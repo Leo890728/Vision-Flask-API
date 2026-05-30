@@ -5,6 +5,8 @@ import os
 import tempfile
 import time
 import unittest
+import urllib.error
+import zipfile
 from unittest import mock
 
 import numpy as np
@@ -79,6 +81,8 @@ class APITestCase(unittest.TestCase):
         os.environ["ENABLE_AUTO_QUEUE"] = "true"
         os.environ["AUTO_QUEUE_MAX_SIZE"] = "200"
         os.environ["CACHE_TTL_SECONDS"] = "3600"
+        os.environ["WEBHOOK_MAX_RETRIES"] = "3"
+        os.environ["WEBHOOK_RETRY_BASE_SECONDS"] = "0.01"
         self.fake_service = FakeSAM3Service()
         self.app = create_app(sam3_service=self.fake_service)
         self.app.config["TESTING"] = True
@@ -86,8 +90,20 @@ class APITestCase(unittest.TestCase):
 
     def tearDown(self):
         self.app.extensions["sam3_services"]["job_service"].stop()
+        self.app.extensions["sam3_services"]["webhook_retry_service"].stop()
         time.sleep(0.05)
         self._tmp.cleanup()
+
+    def _wait_job_terminal(self, job_id: str, attempts: int = 60, sleep_s: float = 0.01):
+        payload = None
+        for _ in range(attempts):
+            status = self.client.get(f"/v1/jobs/{job_id}", headers={"X-API-Key": "test-key"})
+            self.assertEqual(status.status_code, 200)
+            payload = status.get_json()
+            if payload["status"] in {"done", "failed", "canceled"}:
+                return payload
+            time.sleep(sleep_s)
+        return payload
 
     def test_healthz(self):
         response = self.client.get("/healthz")
@@ -260,17 +276,10 @@ class APITestCase(unittest.TestCase):
         job_id = create.get_json()["job_id"]
 
         # Poll briefly for completion from background worker.
-        status_payload = None
-        for _ in range(20):
-            status = self.client.get(f"/v1/jobs/{job_id}", headers={"X-API-Key": "test-key"})
-            self.assertEqual(status.status_code, 200)
-            status_payload = status.get_json()
-            if status_payload["status"] == "done":
-                break
-            time.sleep(0.01)
+        status_payload = self._wait_job_terminal(job_id, attempts=20)
 
         self.assertIsNotNone(status_payload)
-        self.assertIn(status_payload["status"], {"done", "running", "queued"})
+        self.assertIn(status_payload["status"], {"done", "running", "queued", "failed", "canceled"})
         if status_payload["status"] == "done":
             self.assertIn("result", status_payload)
 
@@ -312,14 +321,84 @@ class APITestCase(unittest.TestCase):
             self.assertEqual(create.status_code, 202)
             job_id = create.get_json()["job_id"]
 
+            self._wait_job_terminal(job_id)
+
             for _ in range(50):
-                status = self.client.get(f"/v1/jobs/{job_id}", headers={"X-API-Key": "test-key"})
-                payload = status.get_json()
-                if payload["status"] in {"done", "failed", "canceled"}:
+                if mocked_urlopen.called:
                     break
                 time.sleep(0.01)
-
             self.assertTrue(mocked_urlopen.called)
+
+    def test_webhook_retry_on_failure(self):
+        success_mock = mock.MagicMock()
+        success_mock.__enter__.return_value = None
+        responses = [urllib.error.URLError("temporary"), success_mock]
+        with mock.patch("app.urllib.request.urlopen", side_effect=responses) as mocked_urlopen:
+            create = self.client.post(
+                "/v1/jobs",
+                data={
+                    "image": (_make_image_bytes(), "sample.png"),
+                    "prompt": "webhook-retry",
+                    "webhook_url": "https://example.com/hook",
+                },
+                headers={"X-API-Key": "test-key"},
+                content_type="multipart/form-data",
+            )
+            self.assertEqual(create.status_code, 202)
+            job_id = create.get_json()["job_id"]
+            self._wait_job_terminal(job_id)
+
+            for _ in range(100):
+                if mocked_urlopen.call_count >= 2:
+                    break
+                time.sleep(0.01)
+            self.assertGreaterEqual(mocked_urlopen.call_count, 2)
+
+    def test_retry_failed_job(self):
+        with mock.patch.object(self.fake_service, "segment", side_effect=RuntimeError("boom")):
+            create = self.client.post(
+                "/v1/jobs",
+                data={"image": (_make_image_bytes(), "sample.png"), "prompt": "retry-me"},
+                headers={"X-API-Key": "test-key"},
+                content_type="multipart/form-data",
+            )
+            self.assertEqual(create.status_code, 202)
+            job_id = create.get_json()["job_id"]
+            failed_payload = self._wait_job_terminal(job_id, attempts=80)
+            self.assertIsNotNone(failed_payload)
+            self.assertEqual(failed_payload["status"], "failed")
+
+        retry = self.client.post(f"/v1/jobs/{job_id}/retry", headers={"X-API-Key": "test-key"})
+        self.assertEqual(retry.status_code, 202)
+        retry_job_id = retry.get_json()["job_id"]
+        self.assertNotEqual(job_id, retry_job_id)
+        self.assertEqual(retry.get_json()["retry_of"], job_id)
+
+        retry_payload = self._wait_job_terminal(retry_job_id, attempts=80)
+        self.assertIsNotNone(retry_payload)
+        self.assertEqual(retry_payload["status"], "done")
+
+    def test_export_done_job_zip(self):
+        create = self.client.post(
+            "/v1/jobs",
+            data={"image": (_make_image_bytes(), "sample.png"), "prompt": "export"},
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(create.status_code, 202)
+        job_id = create.get_json()["job_id"]
+        done_payload = self._wait_job_terminal(job_id, attempts=80)
+        self.assertIsNotNone(done_payload)
+        self.assertEqual(done_payload["status"], "done")
+
+        export_resp = self.client.get(f"/v1/jobs/{job_id}/export", headers={"X-API-Key": "test-key"})
+        self.assertEqual(export_resp.status_code, 200)
+        self.assertEqual(export_resp.content_type, "application/zip")
+
+        with zipfile.ZipFile(io.BytesIO(export_resp.data), "r") as zf:
+            names = set(zf.namelist())
+            self.assertTrue(any(name.endswith("result.json") for name in names))
+            self.assertTrue(any(name.endswith("mask_000.png") for name in names))
 
     def test_job_persistence_across_app_restart(self):
         create = self.client.post(
@@ -345,6 +424,7 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(status2.status_code, 200)
         self.assertIn(status2.get_json()["status"], {"done", "failed", "canceled", "queued", "running"})
         app2.extensions["sam3_services"]["job_service"].stop()
+        app2.extensions["sam3_services"]["webhook_retry_service"].stop()
 
 
 class RateLimitTestCase(unittest.TestCase):
@@ -361,6 +441,7 @@ class RateLimitTestCase(unittest.TestCase):
 
     def tearDown(self):
         self.app.extensions["sam3_services"]["job_service"].stop()
+        self.app.extensions["sam3_services"]["webhook_retry_service"].stop()
         time.sleep(0.05)
         self._tmp.cleanup()
 

@@ -32,6 +32,8 @@ Server default: `http://127.0.0.1:5000`
 - `POST /v1/jobs` (requires `X-API-Key`)
 - `GET /v1/jobs/{job_id}` (requires `X-API-Key`)
 - `DELETE /v1/jobs/{job_id}` (requires `X-API-Key`)
+- `POST /v1/jobs/{job_id}/retry` (requires `X-API-Key`)
+- `GET /v1/jobs/{job_id}/export` (requires `X-API-Key`)
 
 `POST /v1/segment` supports:
 - text prompt
@@ -83,6 +85,27 @@ curl -X POST "http://127.0.0.1:5000/v1/jobs" ^
   -F "prompt=person" ^
   -F "webhook_url=https://example.com/callback" ^
   -F "webhook_secret=change-this"
+```
+
+Webhook delivery uses background retries with exponential backoff:
+- `WEBHOOK_MAX_RETRIES` (default `3`)
+- `WEBHOOK_RETRY_BASE_SECONDS` (default `1.0`)
+
+## Retry / Export
+
+Retry a failed/canceled job:
+
+```powershell
+curl -X POST "http://127.0.0.1:5000/v1/jobs/{job_id}/retry" ^
+  -H "X-API-Key: change-me"
+```
+
+Export completed job outputs as zip:
+
+```powershell
+curl -L "http://127.0.0.1:5000/v1/jobs/{job_id}/export" ^
+  -H "X-API-Key: change-me" ^
+  -o "{job_id}.zip"
 ```
 
 ## Run Tests

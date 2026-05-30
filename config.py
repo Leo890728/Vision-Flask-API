@@ -31,6 +31,8 @@ class Config:
     auto_queue_max_size: int = field(default_factory=lambda: int(os.getenv("AUTO_QUEUE_MAX_SIZE", "200")))
     cache_ttl_seconds: int = field(default_factory=lambda: int(os.getenv("CACHE_TTL_SECONDS", "3600")))
     webhook_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "5")))
+    webhook_max_retries: int = field(default_factory=lambda: int(os.getenv("WEBHOOK_MAX_RETRIES", "3")))
+    webhook_retry_base_seconds: float = field(default_factory=lambda: float(os.getenv("WEBHOOK_RETRY_BASE_SECONDS", "1.0")))
     allowed_extensions: set[str] = field(default_factory=lambda: {"jpg", "jpeg", "png", "webp"})
     min_conf: float = 0.0
     max_conf: float = 1.0

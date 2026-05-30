@@ -8,12 +8,14 @@ import json
 import hashlib
 import base64
 import hmac
+import io
+import zipfile
 import urllib.request
 import urllib.error
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, g, has_request_context, request, send_from_directory
+from flask import Flask, jsonify, g, has_request_context, request, send_file, send_from_directory
 from PIL import Image, UnidentifiedImageError
 from werkzeug.exceptions import HTTPException
 
@@ -26,6 +28,7 @@ from services.job_service import JobService
 from services.metrics_service import MetricsService
 from services.sam3_service import SAM3Service
 from services.storage_service import StorageService
+from services.webhook_retry_service import WebhookRetryService
 
 try:
     import cv2
@@ -427,6 +430,44 @@ def _openapi_spec(config: Config) -> dict:
                     "responses": {"200": {"description": "Job canceled"}},
                 }
             },
+            "/v1/jobs/{job_id}/retry": {
+                "post": {
+                    "summary": "Retry a failed/canceled async job",
+                    "security": [{"ApiKeyAuth": []}],
+                    "parameters": [
+                        {
+                            "name": "job_id",
+                            "in": "path",
+                            "required": True,
+                            "schema": {"type": "string"},
+                        }
+                    ],
+                    "responses": {
+                        "202": {"description": "Retry job accepted"},
+                        "404": {"description": "Job not found"},
+                        "409": {"description": "Job state does not allow retry"},
+                    },
+                }
+            },
+            "/v1/jobs/{job_id}/export": {
+                "get": {
+                    "summary": "Export job outputs and result JSON as zip",
+                    "security": [{"ApiKeyAuth": []}],
+                    "parameters": [
+                        {
+                            "name": "job_id",
+                            "in": "path",
+                            "required": True,
+                            "schema": {"type": "string"},
+                        }
+                    ],
+                    "responses": {
+                        "200": {"description": "Zip file download"},
+                        "404": {"description": "Job/output not found"},
+                        "409": {"description": "Job not completed yet"},
+                    },
+                }
+            },
             f"{config.output_url_prefix}/{{filename}}": {
                 "get": {
                     "summary": "Get generated output file",
@@ -465,12 +506,17 @@ def create_app(sam3_service: SAM3Service | None = None, storage_service: Storage
     )
     cache_service = CacheService(ttl_seconds=config.cache_ttl_seconds)
     metrics_service = MetricsService()
+    webhook_retry_service = WebhookRetryService(
+        max_retries=config.webhook_max_retries,
+        base_delay_seconds=config.webhook_retry_base_seconds,
+    )
     app.extensions["sam3_services"] = {
         "sam3_service": sam3_service,
         "storage_service": storage_service,
         "job_service": job_service,
         "cache_service": cache_service,
         "metrics_service": metrics_service,
+        "webhook_retry_service": webhook_retry_service,
     }
 
     class RequestIDFilter(logging.Filter):
@@ -620,26 +666,22 @@ def create_app(sam3_service: SAM3Service | None = None, storage_service: Storage
     def _job_completion_hook(record) -> None:
         if not record.webhook_url:
             return
-        try:
-            payload = {
-                "job_id": record.job_id,
-                "status": record.status,
-                "result": record.result,
-                "error": record.error,
-                "updated_at": record.updated_at,
-            }
-            secret = None
-            if record.payload:
-                secret = record.payload.get("webhook_secret")
-            _post_webhook(record.webhook_url, payload, secret=secret)
-        except urllib.error.URLError as exc:
-            logging.warning("Webhook delivery failed for job %s: %s", record.job_id, exc)
-        except Exception as exc:
-            logging.warning("Unexpected webhook error for job %s: %s", record.job_id, exc)
+        payload = {
+            "job_id": record.job_id,
+            "status": record.status,
+            "result": record.result,
+            "error": record.error,
+            "updated_at": record.updated_at,
+        }
+        secret = None
+        if record.payload:
+            secret = record.payload.get("webhook_secret")
+        webhook_retry_service.submit(record.job_id, record.webhook_url, payload, secret=secret)
 
     def _render_metrics_text() -> str:
         snap = metrics_service.snapshot()
         job_stats = job_service.stats()
+        webhook_stats = webhook_retry_service.stats()
         cache_size = cache_service.size()
         gpu_mem_used = 0
         gpu_mem_total = 0
@@ -664,6 +706,10 @@ def create_app(sam3_service: SAM3Service | None = None, storage_service: Storage
             f"sam3_job_queued_jobs {job_stats['queued_jobs']}",
             f"sam3_job_running_jobs {job_stats['running_jobs']}",
             f"sam3_job_canceling_jobs {job_stats['canceling_jobs']}",
+            f"sam3_webhook_pending {webhook_stats['pending']}",
+            f"sam3_webhook_delivered_total {webhook_stats['delivered_total']}",
+            f"sam3_webhook_retried_total {webhook_stats['retried_total']}",
+            f"sam3_webhook_failed_total {webhook_stats['failed_total']}",
             f"sam3_cache_hits_total {cache_service.hits}",
             f"sam3_cache_misses_total {cache_service.misses}",
             f"sam3_cache_entries {cache_size}",
@@ -942,6 +988,97 @@ def create_app(sam3_service: SAM3Service | None = None, storage_service: Storage
             200,
         )
 
+    @app.post("/v1/jobs/<job_id>/retry")
+    @require_api_key(config.api_key)
+    def retry_job(job_id: str):
+        record = job_service.get(job_id)
+        if record is None:
+            raise APIError("JOB_NOT_FOUND", "Job not found.", 404)
+
+        if record.status not in {"failed", "canceled"}:
+            raise APIError(
+                "INVALID_JOB_STATE",
+                "Retry is only allowed for failed or canceled jobs.",
+                409,
+                {"status": record.status},
+            )
+
+        if not record.payload or not record.payload.get("source_path"):
+            raise APIError("INVALID_JOB_PAYLOAD", "Job payload is incomplete and cannot be retried.", 409)
+
+        source_path = Path(record.payload["source_path"])
+        if not source_path.exists():
+            raise APIError("SOURCE_NOT_FOUND", "Source image for retry no longer exists.", 404)
+
+        retry_payload = json.loads(json.dumps(record.payload, ensure_ascii=False))
+        retry_payload["request_id"] = str(uuid.uuid4())
+        retry_payload["retry_of"] = record.job_id
+
+        if job_service.stats()["queue_size"] >= config.auto_queue_max_size:
+            raise APIError("QUEUE_FULL", "Server queue is full.", 503)
+
+        retry_job_id = job_service.submit(retry_payload, webhook_url=record.webhook_url)
+        metrics_service.inc_jobs_created()
+        return (
+            jsonify(
+                {
+                    "job_id": retry_job_id,
+                    "status": "queued",
+                    "retry_of": record.job_id,
+                    "status_url": f"/v1/jobs/{retry_job_id}",
+                }
+            ),
+            202,
+        )
+
+    @app.get("/v1/jobs/<job_id>/export")
+    @require_api_key(config.api_key)
+    def export_job(job_id: str):
+        record = job_service.get(job_id)
+        if record is None:
+            raise APIError("JOB_NOT_FOUND", "Job not found.", 404)
+        if record.status != "done" or record.result is None:
+            raise APIError("JOB_NOT_READY", "Job result is not ready for export.", 409, {"status": record.status})
+
+        request_id = record.result.get("request_id") or record.payload.get("request_id")
+        if not request_id:
+            raise APIError("EXPORT_NOT_FOUND", "Cannot resolve output directory for this job.", 404)
+
+        output_dir = Path(config.output_dir) / request_id
+        if not output_dir.exists() or not output_dir.is_dir():
+            raise APIError("EXPORT_NOT_FOUND", "Output directory not found.", 404)
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            files = sorted([p for p in output_dir.rglob("*") if p.is_file()])
+            if not files:
+                raise APIError("EXPORT_NOT_FOUND", "No files available to export.", 404)
+            for path in files:
+                arcname = f"{request_id}/{path.relative_to(output_dir).as_posix()}"
+                zf.write(path, arcname=arcname)
+            zf.writestr(
+                f"{request_id}/result.json",
+                json.dumps(
+                    {
+                        "job_id": record.job_id,
+                        "status": record.status,
+                        "created_at": record.created_at,
+                        "updated_at": record.updated_at,
+                        "result": record.result,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+
+        zip_buffer.seek(0)
+        return send_file(
+            zip_buffer,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"{job_id}.zip",
+        )
+
     with app.app_context():
         try:
             if not config.skip_model_load:
@@ -950,6 +1087,7 @@ def create_app(sam3_service: SAM3Service | None = None, storage_service: Storage
                 if Path(sample_image).exists():
                     sam3_service.warmup(sample_image_path=sample_image)
             storage_service.start_cleanup_thread()
+            webhook_retry_service.start(_post_webhook)
             job_service.start(_job_handler, completion_hook=_job_completion_hook)
             logging.info("SAM3 service initialized.")
         except Exception as exc:

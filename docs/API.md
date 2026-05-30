@@ -70,8 +70,27 @@
 ### `DELETE /v1/jobs/{job_id}`
 - 取消任務
 
+### `POST /v1/jobs/{job_id}/retry`
+- 重送失敗/已取消任務（建立新 job）
+- 僅允許原任務狀態為：`failed` 或 `canceled`
+- 回傳 `202`：
+```json
+{
+  "job_id": "new-job-id",
+  "status": "queued",
+  "retry_of": "old-job-id",
+  "status_url": "/v1/jobs/new-job-id"
+}
+```
+
+### `GET /v1/jobs/{job_id}/export`
+- 匯出完成任務的輸出檔與 `result.json`（zip）
+- 只有 `done` 狀態可匯出，否則 `409`
+- 成功回應：`application/zip`
+
 ## Webhook
 - 任務完成後 callback `POST webhook_url`
+- 背景重試機制：指數退避（`WEBHOOK_MAX_RETRIES`, `WEBHOOK_RETRY_BASE_SECONDS`）
 - Body：
 ```json
 {
@@ -84,4 +103,3 @@
 ```
 - Header（有設定 secret 時）：
   - `X-Webhook-Signature: <base64(hmac_sha256(secret, body))>`
-

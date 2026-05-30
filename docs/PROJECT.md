@@ -3,7 +3,7 @@
 ## 專案目標
 - 提供基於 Ultralytics SAM3 的分割 API（Flask）
 - 支援文字提示、點/框提示、批次分割、非同步任務
-- 內建快取、排隊、metrics、webhook 與任務持久化
+- 內建快取、排隊、metrics、webhook 重試、任務持久化與結果匯出
 
 ## 目錄重點
 - `app.py`：主 API 與路由
@@ -13,6 +13,7 @@
 - `services/cache_service.py`：結果快取
 - `services/metrics_service.py`：指標統計
 - `services/storage_service.py`：輸出檔案與清理
+- `services/webhook_retry_service.py`：Webhook 背景重試佇列
 - `tests/test_api.py`：API 測試
 
 ## 執行方式
@@ -26,6 +27,8 @@
 ## 核心行為
 - `/v1/segment` 同步推論；模型忙碌時可自動轉成 job（202）
 - `/v1/jobs` 系列為非同步模式
+- `/v1/jobs/{job_id}/retry` 可重送 failed/canceled 任務
+- `/v1/jobs/{job_id}/export` 匯出 zip（輸出檔 + result.json）
 - 任務資料寫入 `JOB_DB_PATH`（SQLite），重啟可保留狀態
 - 輸出檔預設在 `OUTPUT_DIR`
 
@@ -39,6 +42,8 @@
 - `JOB_DB_PATH`
 - `JOB_WORKER_COUNT`
 - `CACHE_TTL_SECONDS`
+- `WEBHOOK_MAX_RETRIES`
+- `WEBHOOK_RETRY_BASE_SECONDS`
 
 ## 測試
 ```powershell
@@ -48,4 +53,3 @@
 ## 文件
 - API 規格：`docs/API.md`
 - 快速使用：`README.md`
-
