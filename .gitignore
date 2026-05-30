@@ -24,6 +24,7 @@ Thumbs.db
 # Runtime outputs
 outputs/
 runs/
+data/*.sqlite3
 
 # Local env config
 .env

@@ -21,10 +21,20 @@ Server default: `http://127.0.0.1:5000`
 - `GET /healthz`
 - `GET /readyz`
 - `GET /v1/models` (requires `X-API-Key`)
+- `GET /metrics` (requires `X-API-Key`)
 - `POST /v1/segment` (requires `X-API-Key`)
 - `POST /v1/segment/batch` (requires `X-API-Key`)
 - `POST /v1/jobs` (requires `X-API-Key`)
 - `GET /v1/jobs/{job_id}` (requires `X-API-Key`)
+- `DELETE /v1/jobs/{job_id}` (requires `X-API-Key`)
+
+`POST /v1/segment` supports:
+- text prompt
+- point prompt (`points`, `point_labels`)
+- box prompt (`boxes`)
+- output formats: `mask_png`, `rle`, `polygon`, `alpha_matte`
+
+When the model is busy and `ENABLE_AUTO_QUEUE=true`, `/v1/segment` can return `202` and enqueue a job automatically.
 
 ## Example Request
 
@@ -33,6 +43,7 @@ curl -X POST "http://127.0.0.1:5000/v1/segment" ^
   -H "X-API-Key: change-me" ^
   -F "image=@image (2).jpg" ^
   -F "prompt=a person" ^
+  -F "output_formats=[\"mask_png\",\"rle\",\"polygon\"]" ^
   -F "conf=0.25" ^
   -F "return_overlay=true"
 ```
@@ -56,6 +67,17 @@ curl -X POST "http://127.0.0.1:5000/v1/segment" ^
   -H "X-API-Key: change-me" ^
   -F "image=@image (2).jpg" ^
   -F "boxes=[[1000,700,1600,1500]]"
+```
+
+## Async Job with Webhook
+
+```powershell
+curl -X POST "http://127.0.0.1:5000/v1/jobs" ^
+  -H "X-API-Key: change-me" ^
+  -F "image=@image (2).jpg" ^
+  -F "prompt=person" ^
+  -F "webhook_url=https://example.com/callback" ^
+  -F "webhook_secret=change-this"
 ```
 
 ## Run Tests
