@@ -23,6 +23,9 @@ class Config:
     output_retention_hours: int = field(default_factory=lambda: int(os.getenv("OUTPUT_RETENTION_HOURS", "24")))
     cleanup_interval_seconds: int = field(default_factory=lambda: int(os.getenv("CLEANUP_INTERVAL_SECONDS", "3600")))
     skip_model_load: bool = field(default_factory=lambda: _to_bool(os.getenv("SAM3_SKIP_MODEL_LOAD"), False))
+    max_batch_images: int = field(default_factory=lambda: int(os.getenv("MAX_BATCH_IMAGES", "8")))
+    job_worker_count: int = field(default_factory=lambda: int(os.getenv("JOB_WORKER_COUNT", "1")))
+    job_retention_hours: int = field(default_factory=lambda: int(os.getenv("JOB_RETENTION_HOURS", "24")))
     allowed_extensions: set[str] = field(default_factory=lambda: {"jpg", "jpeg", "png", "webp"})
     min_conf: float = 0.0
     max_conf: float = 1.0

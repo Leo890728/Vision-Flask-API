@@ -22,6 +22,9 @@ Server default: `http://127.0.0.1:5000`
 - `GET /readyz`
 - `GET /v1/models` (requires `X-API-Key`)
 - `POST /v1/segment` (requires `X-API-Key`)
+- `POST /v1/segment/batch` (requires `X-API-Key`)
+- `POST /v1/jobs` (requires `X-API-Key`)
+- `GET /v1/jobs/{job_id}` (requires `X-API-Key`)
 
 ## Example Request
 
@@ -32,6 +35,27 @@ curl -X POST "http://127.0.0.1:5000/v1/segment" ^
   -F "prompt=a person" ^
   -F "conf=0.25" ^
   -F "return_overlay=true"
+```
+
+## Visual Prompt Examples
+
+Point prompts:
+
+```powershell
+curl -X POST "http://127.0.0.1:5000/v1/segment" ^
+  -H "X-API-Key: change-me" ^
+  -F "image=@image (2).jpg" ^
+  -F "points=[[1200,900],[1300,950]]" ^
+  -F "point_labels=[1,0]"
+```
+
+Box prompts:
+
+```powershell
+curl -X POST "http://127.0.0.1:5000/v1/segment" ^
+  -H "X-API-Key: change-me" ^
+  -F "image=@image (2).jpg" ^
+  -F "boxes=[[1000,700,1600,1500]]"
 ```
 
 ## Run Tests

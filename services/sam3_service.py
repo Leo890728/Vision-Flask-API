@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 from ultralytics.models.sam import SAM3SemanticPredictor
+from ultralytics.models.sam.predict import SAM3Predictor
 
 from config import Config
 from errors import APIError
@@ -16,6 +17,7 @@ class SAM3Service:
     def __init__(self, config: Config):
         self.config = config
         self._predictor: SAM3SemanticPredictor | None = None
+        self._visual_predictor: SAM3Predictor | None = None
         self._lock = threading.Lock()
         self._ready = False
         self._last_error: str | None = None
@@ -34,6 +36,7 @@ class SAM3Service:
             overrides["device"] = self.config.model_device
 
         self._predictor = SAM3SemanticPredictor(overrides=overrides)
+        self._visual_predictor = SAM3Predictor(overrides=overrides)
         self._ready = True
         self._last_error = None
 
@@ -56,7 +59,7 @@ class SAM3Service:
 
     @property
     def is_ready(self) -> bool:
-        return self._ready and self._predictor is not None
+        return self._ready and self._predictor is not None and self._visual_predictor is not None
 
     @property
     def last_error(self) -> str | None:
@@ -72,18 +75,41 @@ class SAM3Service:
             "last_error": self._last_error,
         }
 
-    def segment(self, image_path: str, prompt: str, conf: float | None = None) -> dict[str, Any]:
-        if not self.is_ready or self._predictor is None:
+    def segment(
+        self,
+        image_path: str,
+        prompt: str | None = None,
+        conf: float | None = None,
+        points: list[list[float]] | None = None,
+        point_labels: list[int] | None = None,
+        boxes: list[list[float]] | None = None,
+    ) -> dict[str, Any]:
+        if not self.is_ready or self._predictor is None or self._visual_predictor is None:
             raise APIError("MODEL_NOT_READY", "Model is not ready.", 503)
 
         if conf is None:
             conf = self.config.model_default_conf
 
+        if not prompt and not points and not boxes:
+            raise APIError("MISSING_PROMPT", "Provide prompt, points, or boxes.", 400)
+
         try:
             with self._lock:
                 self._predictor.args.conf = conf
-                self._predictor.set_image(image_path)
-                results = self._predictor(text=[prompt])
+                self._visual_predictor.args.conf = conf
+                if points:
+                    self._visual_predictor.set_image(image_path)
+                    results = self._visual_predictor(points=points, labels=point_labels)
+                elif boxes and not prompt:
+                    self._visual_predictor.set_image(image_path)
+                    results = self._visual_predictor(bboxes=boxes)
+                else:
+                    self._predictor.set_image(image_path)
+                    kwargs: dict[str, Any] = {}
+                    if boxes:
+                        kwargs["bboxes"] = boxes
+                        kwargs["labels"] = [1] * len(boxes)
+                    results = self._predictor(text=[prompt] if prompt else None, **kwargs)
         except Exception as exc:
             self._last_error = str(exc)
             raise APIError("INFERENCE_FAILED", "Model inference failed.", 500, {"reason": str(exc)}) from exc

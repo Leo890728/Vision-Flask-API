@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import tempfile
+import time
 import unittest
 
 import numpy as np
@@ -28,8 +29,16 @@ class FakeSAM3Service:
             "last_error": None,
         }
 
-    def segment(self, image_path: str, prompt: str, conf: float | None = None):
-        _ = image_path, prompt, conf
+    def segment(
+        self,
+        image_path: str,
+        prompt: str | None = None,
+        conf: float | None = None,
+        points=None,
+        point_labels=None,
+        boxes=None,
+    ):
+        _ = image_path, prompt, conf, points, point_labels, boxes
         masks = np.zeros((1, 16, 16), dtype=np.uint8)
         masks[0, 2:10, 3:12] = 1
         overlay = np.zeros((16, 16, 3), dtype=np.uint8)
@@ -132,6 +141,66 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(mask_response.status_code, 200)
         self.assertEqual(mask_response.content_type, "image/png")
         self.assertIsNotNone(payload["overlay_url"])
+
+    def test_segment_supports_point_prompt(self):
+        data = {
+            "image": (_make_image_bytes(), "sample.png"),
+            "points": "[[10,10],[12,12]]",
+            "point_labels": "[1,0]",
+        }
+        response = self.client.post(
+            "/v1/segment",
+            data=data,
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(len(payload["detections"]), 1)
+
+    def test_batch_segment(self):
+        data = {
+            "images": [
+                (_make_image_bytes(), "sample1.png"),
+                (_make_image_bytes(), "sample2.png"),
+            ],
+            "prompt": "person",
+        }
+        response = self.client.post(
+            "/v1/segment/batch",
+            data=data,
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["batch_size"], 2)
+        self.assertEqual(payload["items"][0]["status"], "ok")
+
+    def test_async_job_flow(self):
+        create = self.client.post(
+            "/v1/jobs",
+            data={"image": (_make_image_bytes(), "sample.png"), "prompt": "person"},
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(create.status_code, 202)
+        job_id = create.get_json()["job_id"]
+
+        # Poll briefly for completion from background worker.
+        status_payload = None
+        for _ in range(20):
+            status = self.client.get(f"/v1/jobs/{job_id}", headers={"X-API-Key": "test-key"})
+            self.assertEqual(status.status_code, 200)
+            status_payload = status.get_json()
+            if status_payload["status"] == "done":
+                break
+            time.sleep(0.01)
+
+        self.assertIsNotNone(status_payload)
+        self.assertIn(status_payload["status"], {"done", "running", "queued"})
+        if status_payload["status"] == "done":
+            self.assertIn("result", status_payload)
 
 
 class RateLimitTestCase(unittest.TestCase):
