@@ -19,6 +19,7 @@ class SAM3Service:
         self._predictor: SAM3SemanticPredictor | None = None
         self._visual_predictor: SAM3Predictor | None = None
         self._lock = threading.Lock()
+        self._active_inference = 0
         self._ready = False
         self._last_error: str | None = None
 
@@ -73,7 +74,12 @@ class SAM3Service:
             "device": self.config.model_device,
             "ready": self.is_ready,
             "last_error": self._last_error,
+            "busy": self.is_busy,
         }
+
+    @property
+    def is_busy(self) -> bool:
+        return self._active_inference > 0
 
     def segment(
         self,
@@ -95,6 +101,7 @@ class SAM3Service:
 
         try:
             with self._lock:
+                self._active_inference += 1
                 self._predictor.args.conf = conf
                 self._visual_predictor.args.conf = conf
                 if points:
@@ -113,6 +120,9 @@ class SAM3Service:
         except Exception as exc:
             self._last_error = str(exc)
             raise APIError("INFERENCE_FAILED", "Model inference failed.", 500, {"reason": str(exc)}) from exc
+        finally:
+            with self._lock:
+                self._active_inference = max(0, self._active_inference - 1)
 
         if not results:
             return {"width": 0, "height": 0, "masks": [], "boxes": [], "scores": [], "overlay_bgr": None}

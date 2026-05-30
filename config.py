@@ -26,6 +26,11 @@ class Config:
     max_batch_images: int = field(default_factory=lambda: int(os.getenv("MAX_BATCH_IMAGES", "8")))
     job_worker_count: int = field(default_factory=lambda: int(os.getenv("JOB_WORKER_COUNT", "1")))
     job_retention_hours: int = field(default_factory=lambda: int(os.getenv("JOB_RETENTION_HOURS", "24")))
+    job_db_path: str = field(default_factory=lambda: os.getenv("JOB_DB_PATH", "data/jobs.sqlite3"))
+    enable_auto_queue: bool = field(default_factory=lambda: _to_bool(os.getenv("ENABLE_AUTO_QUEUE"), True))
+    auto_queue_max_size: int = field(default_factory=lambda: int(os.getenv("AUTO_QUEUE_MAX_SIZE", "200")))
+    cache_ttl_seconds: int = field(default_factory=lambda: int(os.getenv("CACHE_TTL_SECONDS", "3600")))
+    webhook_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "5")))
     allowed_extensions: set[str] = field(default_factory=lambda: {"jpg", "jpeg", "png", "webp"})
     min_conf: float = 0.0
     max_conf: float = 1.0

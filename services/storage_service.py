@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +33,13 @@ class StorageService:
         upload_file.save(source_path)
         return source_path
 
+    def file_sha256(self, file_path: str | Path) -> str:
+        h = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
     def save_mask(self, request_id: str, idx: int, mask: np.ndarray) -> tuple[str, str]:
         request_dir = self.base_dir / request_id
         request_dir.mkdir(parents=True, exist_ok=True)
@@ -54,6 +62,20 @@ class StorageService:
         Image.fromarray(overlay_rgb).save(overlay_path)
 
         rel_path = f"{request_id}/{overlay_name}"
+        return rel_path, self.build_url(rel_path)
+
+    def save_alpha_matte(self, request_id: str, idx: int, mask: np.ndarray) -> tuple[str, str]:
+        request_dir = self.base_dir / request_id
+        request_dir.mkdir(parents=True, exist_ok=True)
+
+        alpha = np.where(mask > 0, 255, 0).astype(np.uint8)
+        rgba = np.zeros((alpha.shape[0], alpha.shape[1], 4), dtype=np.uint8)
+        rgba[:, :, 3] = alpha
+
+        name = f"alpha_{idx:03d}.png"
+        path = request_dir / name
+        Image.fromarray(rgba, mode="RGBA").save(path)
+        rel_path = f"{request_id}/{name}"
         return rel_path, self.build_url(rel_path)
 
     def build_url(self, rel_path: str) -> str:
