@@ -2,6 +2,11 @@
 
 Flask API for SAM3 semantic segmentation with text prompts.
 
+## Documents
+
+- [API Docs](docs/API.md)
+- [Project Docs](docs/PROJECT.md)
+
 ## Quick Start
 
 1. Put model weights at `models/sam3.1_multiplex.pt`.
