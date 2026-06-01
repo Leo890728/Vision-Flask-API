@@ -27,6 +27,8 @@ Server default: `http://127.0.0.1:5000`
 - `GET /readyz`
 - `GET /v1/models` (requires `X-API-Key`)
 - `GET /metrics` (requires `X-API-Key`)
+- `POST /v1/detect` (requires `X-API-Key`)
+- `POST /v1/detect/batch` (requires `X-API-Key`)
 - `POST /v1/segment` (requires `X-API-Key`)
 - `POST /v1/segment/batch` (requires `X-API-Key`)
 - `POST /v1/jobs` (requires `X-API-Key`)
@@ -41,7 +43,13 @@ Server default: `http://127.0.0.1:5000`
 - box prompt (`boxes`)
 - output formats: `mask_png`, `rle`, `polygon`, `alpha_matte`
 
+`POST /v1/detect` supports (bbox only):
+- class filter (`classes`, JSON list of class IDs or names)
+- overlay: `none` or `bbox`
+- returns `bbox`, `score`, `class_id`, `class_name`
+
 When the model is busy and `ENABLE_AUTO_QUEUE=true`, `/v1/segment` can return `202` and enqueue a job automatically.
+`/v1/detect` also supports auto-queue.
 
 ## Example Request
 
@@ -82,9 +90,21 @@ curl -X POST "http://127.0.0.1:5000/v1/segment" ^
 curl -X POST "http://127.0.0.1:5000/v1/jobs" ^
   -H "X-API-Key: change-me" ^
   -F "image=@image (2).jpg" ^
+  -F "task=segment" ^
   -F "prompt=person" ^
   -F "webhook_url=https://example.com/callback" ^
   -F "webhook_secret=change-this"
+```
+
+Async detect job:
+
+```powershell
+curl -X POST "http://127.0.0.1:5000/v1/jobs" ^
+  -H "X-API-Key: change-me" ^
+  -F "image=@image (2).jpg" ^
+  -F "task=detect" ^
+  -F "classes=[\"person\"]" ^
+  -F "overlay=bbox"
 ```
 
 Webhook delivery uses background retries with exponential backoff:

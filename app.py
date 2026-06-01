@@ -11,6 +11,8 @@ from api.errors import register_error_handlers
 from api.parsers import parse_bool
 from api.request_hooks import RequestIDFilter, register_request_hooks
 from config import Config
+from errors import APIError
+from routes.detect import register_detect_routes
 from routes.jobs import register_job_routes
 from routes.segment import register_segment_routes
 from routes.system import register_system_routes
@@ -54,28 +56,43 @@ def _initialize_runtime(app: Flask) -> None:
             secret = record.payload.get("webhook_secret")
         services["webhook_retry_service"].submit(record.job_id, record.webhook_url, payload, secret=secret)
 
+    def unified_job_handler(payload: dict):
+        task = (payload or {}).get("task", "segment")
+        if task == "detect":
+            return services["detection_pipeline"].job_handler(payload)
+        if task == "segment":
+            return services["pipeline"].job_handler(payload)
+        raise APIError("INVALID_TASK", f"Unsupported task: {task}", 400)
+
     with app.app_context():
         try:
             if not config.skip_model_load:
                 services["sam3_service"].load()
+                services["yolo_service"].load()
                 sample_image = "image (2).jpg"
                 if Path(sample_image).exists():
                     services["sam3_service"].warmup(sample_image_path=sample_image)
+                    services["yolo_service"].warmup(sample_image_path=sample_image)
             services["storage_service"].start_cleanup_thread()
             services["webhook_retry_service"].start(post_webhook_with_config)
-            services["job_service"].start(services["pipeline"].job_handler, completion_hook=job_completion_hook)
-            logging.info("SAM3 service initialized.")
+            services["job_service"].start(unified_job_handler, completion_hook=job_completion_hook)
+            logging.info("SAM3 + YOLO services initialized.")
         except Exception as exc:
-            logging.exception("Failed to initialize SAM3 service: %s", exc)
+            logging.exception("Failed to initialize model services: %s", exc)
 
 
-def create_app(sam3_service=None, storage_service=None) -> Flask:
+def create_app(sam3_service=None, yolo_service=None, storage_service=None) -> Flask:
     config = Config()
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = config.max_upload_bytes
 
     _configure_logging()
-    built = build_app_services(config=config, sam3_service=sam3_service, storage_service=storage_service)
+    built = build_app_services(
+        config=config,
+        sam3_service=sam3_service,
+        yolo_service=yolo_service,
+        storage_service=storage_service,
+    )
 
     app.extensions["sam3_services"] = {
         "config": built.config,
@@ -86,6 +103,7 @@ def create_app(sam3_service=None, storage_service=None) -> Flask:
     register_error_handlers(app)
     register_system_routes(app, built)
     register_segment_routes(app, built)
+    register_detect_routes(app, built)
     register_job_routes(app, built)
     _initialize_runtime(app)
     return app

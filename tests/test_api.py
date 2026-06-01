@@ -62,6 +62,71 @@ class FakeSAM3Service:
         }
 
 
+class FakeYOLOService:
+    def __init__(self):
+        self.is_ready = True
+        self.last_error = None
+        self.is_busy = False
+        self.call_count = 0
+        self._names = {0: "person", 1: "car"}
+
+    def metadata(self):
+        return {
+            "model_path": "models/yolo11n.pt",
+            "default_conf": 0.25,
+            "half": True,
+            "device": "auto",
+            "ready": True,
+            "last_error": None,
+            "busy": self.is_busy,
+        }
+
+    def resolve_class_ids(self, classes):
+        if not classes:
+            return None
+        ids = []
+        for item in classes:
+            if isinstance(item, int):
+                ids.append(item)
+                continue
+            key = str(item).lower()
+            matches = [cid for cid, name in self._names.items() if name.lower() == key]
+            if not matches:
+                raise ValueError(f"Unknown class: {item}")
+            ids.append(matches[0])
+        return ids
+
+    def detect(self, image_path: str, conf: float | None = None, class_ids=None, overlay: str = "none"):
+        _ = image_path, conf
+        self.call_count += 1
+        detections = [
+            {
+                "id": 0,
+                "score": 0.95,
+                "bbox": [1.0, 2.0, 14.0, 15.0],
+                "class_id": 0,
+                "class_name": "person",
+            },
+            {
+                "id": 1,
+                "score": 0.88,
+                "bbox": [2.0, 3.0, 10.0, 12.0],
+                "class_id": 1,
+                "class_name": "car",
+            },
+        ]
+        if class_ids:
+            detections = [d for d in detections if d["class_id"] in set(class_ids)]
+
+        overlay_img = np.zeros((16, 16, 3), dtype=np.uint8) if overlay == "bbox" else None
+        return {
+            "width": 16,
+            "height": 16,
+            "detections": detections,
+            "overlay_bgr": overlay_img,
+        }
+
+
 def _make_image_bytes(size=(16, 16), fmt="PNG") -> io.BytesIO:
     image = Image.new("RGB", size=size, color=(255, 255, 255))
     buf = io.BytesIO()
@@ -84,7 +149,8 @@ class APITestCase(unittest.TestCase):
         os.environ["WEBHOOK_MAX_RETRIES"] = "3"
         os.environ["WEBHOOK_RETRY_BASE_SECONDS"] = "0.01"
         self.fake_service = FakeSAM3Service()
-        self.app = create_app(sam3_service=self.fake_service)
+        self.fake_yolo_service = FakeYOLOService()
+        self.app = create_app(sam3_service=self.fake_service, yolo_service=self.fake_yolo_service)
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()
 
@@ -233,6 +299,91 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(self.fake_service.call_count, calls_after_first)
         self.assertTrue(r2.get_json()["cached"])
 
+    def test_detect_success(self):
+        data = {
+            "image": (_make_image_bytes(), "sample.png"),
+            "overlay": "bbox",
+            "classes": "[\"person\"]",
+        }
+        response = self.client.post(
+            "/v1/detect",
+            data=data,
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["task"], "detect")
+        self.assertEqual(len(payload["detections"]), 1)
+        self.assertEqual(payload["detections"][0]["class_name"], "person")
+        self.assertIsNotNone(payload["overlay_url"])
+
+    def test_detect_overlay_mask_rejected(self):
+        response = self.client.post(
+            "/v1/detect",
+            data={"image": (_make_image_bytes(), "sample.png"), "overlay": "mask"},
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["code"], "INVALID_OVERLAY")
+
+    def test_detect_batch(self):
+        response = self.client.post(
+            "/v1/detect/batch",
+            data={
+                "images": [
+                    (_make_image_bytes(), "sample1.png"),
+                    (_make_image_bytes(), "sample2.png"),
+                ],
+                "classes": "[0]",
+            },
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["batch_size"], 2)
+        self.assertEqual(payload["items"][0]["status"], "ok")
+        self.assertEqual(payload["items"][0]["result"]["detections"][0]["class_id"], 0)
+
+    def test_detect_invalid_classes_type(self):
+        response = self.client.post(
+            "/v1/detect",
+            data={"image": (_make_image_bytes(), "sample.png"), "classes": "{}"},
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["code"], "INVALID_CLASSES")
+        details = response.get_json().get("details", {})
+        self.assertIn("received", details)
+        self.assertIn("accepted_formats", details)
+
+    def test_detect_classes_loose_form_supported(self):
+        response = self.client.post(
+            "/v1/detect",
+            data={"image": (_make_image_bytes(), "sample.png"), "classes": "[0,person]"},
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(len(payload["detections"]), 1)
+        self.assertEqual(payload["detections"][0]["class_id"], 0)
+
+    def test_detect_classes_double_encoded_json_supported(self):
+        response = self.client.post(
+            "/v1/detect",
+            data={"image": (_make_image_bytes(), "sample.png"), "classes": "\"[\\\"person\\\"]\""},
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(len(payload["detections"]), 1)
+        self.assertEqual(payload["detections"][0]["class_name"], "person")
+
     def test_auto_queue_when_busy(self):
         self.fake_service.is_busy = True
         response = self.client.post(
@@ -282,6 +433,23 @@ class APITestCase(unittest.TestCase):
         self.assertIn(status_payload["status"], {"done", "running", "queued", "failed", "canceled"})
         if status_payload["status"] == "done":
             self.assertIn("result", status_payload)
+
+    def test_async_detect_job_flow(self):
+        create = self.client.post(
+            "/v1/jobs",
+            data={"image": (_make_image_bytes(), "sample.png"), "task": "detect", "classes": "[\"person\"]"},
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(create.status_code, 202)
+        job_id = create.get_json()["job_id"]
+
+        payload = self._wait_job_terminal(job_id, attempts=30)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["task"], "detect")
+        if payload["status"] == "done":
+            self.assertEqual(payload["result"]["task"], "detect")
+            self.assertEqual(len(payload["result"]["detections"]), 1)
 
     def test_cancel_job(self):
         self.fake_service.sleep_s = 0.2
@@ -417,7 +585,7 @@ class APITestCase(unittest.TestCase):
             time.sleep(0.01)
 
         # Recreate app with same JOB_DB_PATH to verify persisted job metadata.
-        app2 = create_app(sam3_service=FakeSAM3Service())
+        app2 = create_app(sam3_service=FakeSAM3Service(), yolo_service=FakeYOLOService())
         app2.config["TESTING"] = True
         client2 = app2.test_client()
         status2 = client2.get(f"/v1/jobs/{job_id}", headers={"X-API-Key": "test-key"})
@@ -435,7 +603,7 @@ class RateLimitTestCase(unittest.TestCase):
         os.environ["SAM3_SKIP_MODEL_LOAD"] = "1"
         os.environ["RATE_LIMIT_PER_MINUTE"] = "1"
         os.environ["JOB_DB_PATH"] = os.path.join(self._tmp.name, "jobs.sqlite3")
-        self.app = create_app(sam3_service=FakeSAM3Service())
+        self.app = create_app(sam3_service=FakeSAM3Service(), yolo_service=FakeYOLOService())
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()
 

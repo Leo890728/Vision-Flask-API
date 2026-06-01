@@ -7,6 +7,22 @@ from config import Config
 from errors import APIError
 
 _OVERLAY_VALUES = {"none", "bbox", "mask", "both"}
+_DETECT_OVERLAY_VALUES = {"none", "bbox"}
+_TASK_VALUES = {"segment", "detect"}
+
+
+def _invalid_classes_error(message: str, raw: Any = None) -> APIError:
+    details = {
+        "received": repr(raw),
+        "accepted_formats": [
+            "[0,\"person\"]",
+            "[\"person\"]",
+            "[0,person]",
+            "person",
+            "0,2",
+        ],
+    }
+    return APIError("INVALID_CLASSES", message, 400, details)
 
 
 def parse_bool(value: str | None, default: bool = False) -> bool:
@@ -24,9 +40,31 @@ def parse_overlay(value: str | None) -> str:
     return parsed
 
 
-def validate_conf(value: str | None, config: Config) -> float:
+def parse_detect_overlay(value: str | None) -> str:
+    parsed = parse_overlay(value)
+    if parsed not in _DETECT_OVERLAY_VALUES:
+        raise APIError(
+            "INVALID_OVERLAY",
+            f"overlay must be one of: {', '.join(sorted(_DETECT_OVERLAY_VALUES))} for detect task.",
+            400,
+        )
+    return parsed
+
+
+def parse_task(value: str | None) -> str:
+    if not value:
+        return "segment"
+    parsed = value.strip().lower()
+    if parsed not in _TASK_VALUES:
+        raise APIError("INVALID_TASK", f"task must be one of: {', '.join(sorted(_TASK_VALUES))}.", 400)
+    return parsed
+
+
+def validate_conf(value: str | None, config: Config, default_conf: float | None = None) -> float:
+    if default_conf is None:
+        default_conf = config.model_default_conf
     if value is None or value == "":
-        return config.model_default_conf
+        return default_conf
     try:
         conf = float(value)
     except ValueError as exc:
@@ -113,3 +151,153 @@ def parse_output_formats(form_data: Mapping[str, Any]) -> set[str]:
     if not selected:
         selected = {"mask_png"}
     return selected
+
+
+def parse_classes(form_data: Mapping[str, Any]) -> list[int | str] | None:
+    if hasattr(form_data, "getlist"):
+        try:
+            raw_list = form_data.getlist("classes")
+        except Exception:
+            raw_list = []
+        if raw_list:
+            if len(raw_list) > 1:
+                return _validate_classes_list(raw_list)
+            raw = raw_list[0]
+        else:
+            raw = form_data.get("classes")
+    else:
+        raw = form_data.get("classes")
+
+    if raw is None or raw == "":
+        return None
+    parsed: Any = None
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+    else:
+        parsed = raw
+
+    if isinstance(parsed, list):
+        return _validate_classes_list(parsed)
+    if isinstance(parsed, dict):
+        raise _invalid_classes_error("classes must be a list, not an object.", raw=raw)
+    if isinstance(parsed, str):
+        nested = _try_parse_nested_classes_json(parsed)
+        if isinstance(nested, list):
+            return _validate_classes_list(nested)
+
+    if isinstance(raw, str):
+        direct = _parse_classes_direct(raw)
+        if direct is not None:
+            return _validate_classes_list(direct)
+
+    if isinstance(raw, str):
+        nested_raw = _try_parse_nested_classes_json(raw)
+        if isinstance(nested_raw, list):
+            return _validate_classes_list(nested_raw)
+
+    if isinstance(parsed, list):
+        return _validate_classes_list(parsed)
+
+    # Be tolerant for multipart form inputs where quotes are often stripped,
+    # e.g. [0,person] sent from shell/UI tooling.
+    if isinstance(raw, str):
+        parsed = _parse_classes_loose(raw)
+        if parsed is not None:
+            return _validate_classes_list(parsed)
+
+    raise _invalid_classes_error("classes format is invalid.", raw=raw)
+
+
+def _validate_classes_list(parsed: Any) -> list[int | str]:
+    if not isinstance(parsed, list):
+        raise _invalid_classes_error("classes must be a list.", raw=parsed)
+
+    values: list[int | str] = []
+    for item in parsed:
+        if isinstance(item, bool):
+            raise _invalid_classes_error("classes values must be int or string.", raw=parsed)
+        if isinstance(item, int):
+            values.append(item)
+        elif isinstance(item, str) and item.strip():
+            values.append(item.strip())
+        else:
+            raise _invalid_classes_error("classes values must be int or non-empty string.", raw=parsed)
+    return values
+
+
+def _parse_classes_loose(raw: str) -> list[int | str] | None:
+    text = raw.strip()
+    text = _strip_outer_quotes(text)
+    if not (text.startswith("[") and text.endswith("]")):
+        return None
+
+    inner = text[1:-1].strip()
+    if inner == "":
+        return []
+
+    # normalize common smart quotes copied from docs/chat tools
+    inner = inner.replace("“", "\"").replace("”", "\"").replace("’", "'").replace("‘", "'")
+    tokens = [token.strip() for token in inner.split(",")]
+    out: list[int | str] = []
+    for token in tokens:
+        if not token:
+            raise _invalid_classes_error("classes values must be int or non-empty string.", raw=raw)
+        if (token.startswith("\"") and token.endswith("\"")) or (token.startswith("'") and token.endswith("'")):
+            value = token[1:-1].strip()
+            if not value:
+                raise _invalid_classes_error("classes values must be int or non-empty string.", raw=raw)
+            out.append(value)
+            continue
+        try:
+            out.append(int(token))
+            continue
+        except ValueError:
+            # accept unquoted class names from form clients, e.g. [0,person]
+            out.append(token)
+    return out
+
+
+def _parse_classes_direct(raw: str) -> list[int | str] | None:
+    text = _strip_outer_quotes(raw.strip())
+    if text == "":
+        return None
+    if text.startswith("[") and text.endswith("]"):
+        return None
+
+    # Accept plain single class token or CSV list, e.g. person or person,car or 0,2
+    tokens = [token.strip() for token in text.split(",") if token.strip()]
+    if not tokens:
+        return None
+    out: list[int | str] = []
+    for token in tokens:
+        try:
+            out.append(int(token))
+        except ValueError:
+            out.append(token)
+    return out
+
+
+def _try_parse_nested_classes_json(value: str) -> list[int | str] | None:
+    text = _strip_outer_quotes(value.strip())
+    if not (text.startswith("[") and text.endswith("]")):
+        return None
+    text = text.replace("\\\"", "\"")
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, list):
+        return parsed
+    return None
+
+
+def _strip_outer_quotes(text: str) -> str:
+    if len(text) >= 2 and (
+        (text.startswith("\"") and text.endswith("\""))
+        or (text.startswith("'") and text.endswith("'"))
+    ):
+        return text[1:-1].strip()
+    return text

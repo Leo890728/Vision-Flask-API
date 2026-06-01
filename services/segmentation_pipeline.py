@@ -70,6 +70,7 @@ class SegmentationPipeline:
         output_formats: set[str],
     ) -> str:
         key_obj = {
+            "task": "segment",
             "image_sha256": image_sha256,
             "prompt_inputs": prompt_inputs,
             "conf": conf,

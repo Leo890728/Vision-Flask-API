@@ -63,11 +63,10 @@ def register_system_routes(app: Flask, services: AppServices) -> None:
     @blueprint.get("/v1/models")
     @require_api_key(config.api_key)
     def model_metadata():
-        return jsonify(services.sam3_service.metadata()), 200
+        return jsonify({"sam3": services.sam3_service.metadata(), "yolo": services.yolo_service.metadata()}), 200
 
     @blueprint.get(f"{config.output_url_prefix}/<path:filename>")
     def serve_output_file(filename: str):
         return send_from_directory(config.output_dir, filename)
 
     app.register_blueprint(blueprint)
-

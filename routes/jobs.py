@@ -8,7 +8,15 @@ from pathlib import Path
 
 from flask import Blueprint, Flask, g, jsonify, request, send_file
 
-from api.parsers import parse_output_formats, parse_overlay, parse_prompt_inputs, validate_conf
+from api.parsers import (
+    parse_classes,
+    parse_detect_overlay,
+    parse_output_formats,
+    parse_overlay,
+    parse_prompt_inputs,
+    parse_task,
+    validate_conf,
+)
 from errors import APIError
 from middlewares.auth import require_api_key
 from middlewares.rate_limit import apply_rate_limit
@@ -26,29 +34,45 @@ def register_job_routes(app: Flask, services: AppServices) -> None:
         upload = request.files.get("image")
         if upload is None:
             raise APIError("MISSING_IMAGE", "image is required.", 400)
-
-        prompt_inputs = parse_prompt_inputs(request.form, require_input=True)
-        output_formats = parse_output_formats(request.form)
-        overlay = parse_overlay(request.form.get("overlay"))
-        conf = validate_conf(request.form.get("conf"), config)
+        task = parse_task(request.form.get("task"))
         webhook_url = (request.form.get("webhook_url") or "").strip() or None
         webhook_secret = (request.form.get("webhook_secret") or "").strip() or None
-        g.prompt = prompt_inputs["prompt"]
-
-        source_path, _w, _h, decode_ms = services.pipeline.save_and_validate_upload(upload, g.request_id)
+        if task == "segment":
+            prompt_inputs = parse_prompt_inputs(request.form, require_input=True)
+            output_formats = parse_output_formats(request.form)
+            overlay = parse_overlay(request.form.get("overlay"))
+            conf = validate_conf(request.form.get("conf"), config)
+            g.prompt = prompt_inputs["prompt"]
+            source_path, _w, _h, decode_ms = services.pipeline.save_and_validate_upload(upload, g.request_id)
+            job_payload = {
+                "task": "segment",
+                "request_id": g.request_id,
+                "source_path": str(source_path),
+                "prompt_inputs": prompt_inputs,
+                "conf": conf,
+                "overlay": overlay,
+                "output_formats": sorted(output_formats),
+                "decode_ms": decode_ms,
+                "webhook_secret": webhook_secret,
+            }
+        else:
+            classes = parse_classes(request.form)
+            overlay = parse_detect_overlay(request.form.get("overlay"))
+            conf = validate_conf(request.form.get("conf"), config, default_conf=config.yolo_default_conf)
+            g.prompt = None
+            source_path, _w, _h, decode_ms = services.detection_pipeline.save_and_validate_upload(upload, g.request_id)
+            job_payload = {
+                "task": "detect",
+                "request_id": g.request_id,
+                "source_path": str(source_path),
+                "conf": conf,
+                "overlay": overlay,
+                "classes": classes,
+                "decode_ms": decode_ms,
+                "webhook_secret": webhook_secret,
+            }
         if services.job_service.stats()["queue_size"] >= config.auto_queue_max_size:
             raise APIError("QUEUE_FULL", "Server queue is full.", 503)
-
-        job_payload = {
-            "request_id": g.request_id,
-            "source_path": str(source_path),
-            "prompt_inputs": prompt_inputs,
-            "conf": conf,
-            "overlay": overlay,
-            "output_formats": sorted(output_formats),
-            "decode_ms": decode_ms,
-            "webhook_secret": webhook_secret,
-        }
         job_id = services.job_service.submit(job_payload, webhook_url=webhook_url)
         services.metrics_service.inc_jobs_created()
         return (
@@ -56,6 +80,7 @@ def register_job_routes(app: Flask, services: AppServices) -> None:
                 {
                     "job_id": job_id,
                     "status": "queued",
+                    "task": task,
                     "status_url": f"/v1/jobs/{job_id}",
                     "webhook_url": webhook_url,
                 }
@@ -73,6 +98,7 @@ def register_job_routes(app: Flask, services: AppServices) -> None:
         payload = {
             "job_id": record.job_id,
             "status": record.status,
+            "task": (record.payload or {}).get("task", "segment"),
             "created_at": record.created_at,
             "updated_at": record.updated_at,
         }

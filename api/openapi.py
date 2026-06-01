@@ -9,7 +9,7 @@ def openapi_spec(config: Config) -> dict:
         "info": {
             "title": "SAM3 Flask API",
             "version": "1.0.0",
-            "description": "SAM3 semantic segmentation API with text prompt input.",
+            "description": "SAM3 segmentation + YOLO detection API.",
         },
         "servers": [{"url": "/"}],
         "components": {
@@ -60,6 +60,52 @@ def openapi_spec(config: Config) -> dict:
                     "summary": "Prometheus-style metrics",
                     "security": [{"ApiKeyAuth": []}],
                     "responses": {"200": {"description": "Metrics text"}},
+                }
+            },
+            "/v1/detect": {
+                "post": {
+                    "summary": "Detect objects (bbox only) in a single image",
+                    "security": [{"ApiKeyAuth": []}],
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "multipart/form-data": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["image"],
+                                    "properties": {
+                                        "image": {"type": "string", "format": "binary"},
+                                        "classes": {
+                                            "type": "string",
+                                            "description": "JSON list of class ids or class names, e.g. [0,\"person\"]",
+                                        },
+                                        "conf": {"type": "number", "default": config.yolo_default_conf},
+                                        "overlay": {
+                                            "type": "string",
+                                            "enum": ["none", "bbox"],
+                                            "default": "none",
+                                        },
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {"description": "Detection result"},
+                        "202": {"description": "Auto queued as async job"},
+                        "400": {"description": "Bad request"},
+                        "401": {"description": "Unauthorized"},
+                        "429": {"description": "Rate limit exceeded"},
+                        "503": {"description": "Queue full or model not ready"},
+                        "500": {"description": "Inference failed"},
+                    },
+                }
+            },
+            "/v1/detect/batch": {
+                "post": {
+                    "summary": "Batch object detection in one request",
+                    "security": [{"ApiKeyAuth": []}],
+                    "responses": {"200": {"description": "Batch detection result"}},
                 }
             },
             "/v1/segment": {
@@ -161,8 +207,43 @@ def openapi_spec(config: Config) -> dict:
             },
             "/v1/jobs": {
                 "post": {
-                    "summary": "Submit async segmentation job",
+                    "summary": "Submit async job for segment or detect task",
                     "security": [{"ApiKeyAuth": []}],
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "multipart/form-data": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["image"],
+                                    "properties": {
+                                        "image": {"type": "string", "format": "binary"},
+                                        "task": {
+                                            "type": "string",
+                                            "enum": ["segment", "detect"],
+                                            "default": "segment",
+                                        },
+                                        "prompt": {"type": "string"},
+                                        "points": {"type": "string", "description": "JSON: [[x,y], ...]"},
+                                        "point_labels": {"type": "string", "description": "JSON: [1,0,...]"},
+                                        "boxes": {"type": "string", "description": "JSON: [x1,y1,x2,y2] or [[...],...]"},
+                                        "output_formats": {
+                                            "type": "string",
+                                            "description": "Segment only. JSON list or csv. mask_png,rle,polygon,alpha_matte",
+                                        },
+                                        "classes": {
+                                            "type": "string",
+                                            "description": "Detect only. JSON list of class ids or names.",
+                                        },
+                                        "conf": {"type": "number"},
+                                        "overlay": {"type": "string"},
+                                        "webhook_url": {"type": "string"},
+                                        "webhook_secret": {"type": "string"},
+                                    },
+                                }
+                            }
+                        },
+                    },
                     "responses": {"202": {"description": "Job accepted"}},
                 }
             },
