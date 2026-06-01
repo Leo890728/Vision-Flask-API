@@ -152,7 +152,7 @@ class APITestCase(unittest.TestCase):
         data = {
             "image": (_make_image_bytes(), "sample.png"),
             "prompt": "a person",
-            "return_overlay": "true",
+            "overlay": "both",
         }
         response = self.client.post(
             "/v1/segment",

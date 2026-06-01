@@ -52,7 +52,7 @@ curl -X POST "http://127.0.0.1:5000/v1/segment" ^
   -F "prompt=a person" ^
   -F "output_formats=[\"mask_png\",\"rle\",\"polygon\"]" ^
   -F "conf=0.25" ^
-  -F "return_overlay=true"
+  -F "overlay=both"
 ```
 
 ## Visual Prompt Examples

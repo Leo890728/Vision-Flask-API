@@ -89,6 +89,7 @@ class SAM3Service:
         points: list[list[float]] | None = None,
         point_labels: list[int] | None = None,
         boxes: list[list[float]] | None = None,
+        overlay: str = "none",
     ) -> dict[str, Any]:
         if not self.is_ready or self._predictor is None or self._visual_predictor is None:
             raise APIError("MODEL_NOT_READY", "Model is not ready.", 503)
@@ -136,7 +137,13 @@ class SAM3Service:
         masks = masks_tensor.detach().cpu().numpy().astype(np.uint8) if masks_tensor is not None else np.zeros((0, height, width), dtype=np.uint8)
         boxes = boxes_tensor.detach().cpu().numpy().tolist() if boxes_tensor is not None else []
         scores = conf_tensor.detach().cpu().numpy().tolist() if conf_tensor is not None else []
-        overlay_bgr = result.plot()
+
+        if overlay == "none":
+            overlay_bgr = None
+        else:
+            draw_boxes = overlay in {"bbox", "both"}
+            draw_masks = overlay in {"mask", "both"}
+            overlay_bgr = result.plot(boxes=draw_boxes, masks=draw_masks)
 
         return {
             "width": int(width),
