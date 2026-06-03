@@ -106,6 +106,7 @@ class Config:
     enable_auto_queue: bool = field(default_factory=lambda: _to_bool(os.getenv("ENABLE_AUTO_QUEUE"), True))
     auto_queue_max_size: int = field(default_factory=lambda: int(os.getenv("AUTO_QUEUE_MAX_SIZE", "200")))
     cache_ttl_seconds: int = field(default_factory=lambda: int(os.getenv("CACHE_TTL_SECONDS", "3600")))
+    max_loaded_models: int = field(default_factory=lambda: int(os.getenv("MAX_LOADED_MODELS", "1")))
     webhook_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "5")))
     webhook_max_retries: int = field(default_factory=lambda: int(os.getenv("WEBHOOK_MAX_RETRIES", "3")))
     webhook_retry_base_seconds: float = field(default_factory=lambda: float(os.getenv("WEBHOOK_RETRY_BASE_SECONDS", "1.0")))

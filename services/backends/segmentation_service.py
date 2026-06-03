@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from ultralytics import YOLO
@@ -12,6 +12,9 @@ from ultralytics.models.sam.predict import SAM3Predictor
 from config import Config
 from errors import APIError
 from services.backends.model_backend import BaseModelBackend, resolve_yolo_class_ids
+
+if TYPE_CHECKING:
+    from services.infra.model_pool import ModelPool
 
 
 def _build_segmentation_payload(results: Any, overlay: str) -> dict[str, Any]:
@@ -80,6 +83,13 @@ class _SAM3Backend(BaseModelBackend):
         self._visual_predictor = SAM3Predictor(overrides=overrides)
         self._ready = True
         self._last_error = None
+
+    def unload(self) -> None:
+        del self._predictor
+        del self._visual_predictor
+        self._predictor = None
+        self._visual_predictor = None
+        self._ready = False
 
     def warmup(self, sample_image_path: str | None = None) -> None:
         if self._predictor is None:
@@ -164,6 +174,11 @@ class _YOLOSegBackend(BaseModelBackend):
         self._ready = True
         self._last_error = None
 
+    def unload(self) -> None:
+        del self._model
+        self._model = None
+        self._ready = False
+
     def warmup(self, sample_image_path: str | None = None) -> None:
         if self._model is None or sample_image_path is None:
             return
@@ -238,18 +253,32 @@ class SegmentationService:
         config: Config,
         sam3_backend: Any | None = None,
         yolo_seg_backend: Any | None = None,
+        pool: ModelPool | None = None,
     ):
         self.config = config
+        self._pool = pool
         self.sam3_backend = sam3_backend or _SAM3Backend(config)
         self.yolo_seg_backend = yolo_seg_backend or _YOLOSegBackend(config)
 
     def load(self) -> None:
-        self.sam3_backend.load()
-        self.yolo_seg_backend.load()
+        if self._pool:
+            # With a pool, only pre-load the default backend so all models don't
+            # occupy GPU simultaneously at startup.
+            backend = self._backend_for(self.config.segment_default_model)
+            try:
+                self._pool.ensure_loaded(backend)
+            except Exception as exc:
+                backend._ready = False
+                backend._last_error = str(exc)
+                logging.warning("Failed to load segmentation model %s: %s", backend.name, exc)
+        else:
+            self.sam3_backend.load()
+            self.yolo_seg_backend.load()
 
     def warmup(self, sample_image_path: str | None = None) -> None:
-        self.sam3_backend.warmup(sample_image_path=sample_image_path)
-        self.yolo_seg_backend.warmup(sample_image_path=sample_image_path)
+        for backend in (self.sam3_backend, self.yolo_seg_backend):
+            if backend.is_ready:
+                backend.warmup(sample_image_path=sample_image_path)
 
     @property
     def is_ready(self) -> bool:
@@ -284,6 +313,9 @@ class SegmentationService:
         classes: list[int | str] | None = None,
         overlay: str = "none",
     ) -> dict[str, Any]:
+        backend = self._backend_for(segment_model)
+        if self._pool:
+            self._pool.ensure_loaded(backend)
         if segment_model == "yolo_seg":
             return self.yolo_seg_backend.segment(
                 image_path=image_path,

@@ -50,6 +50,10 @@ class BaseModelBackend:
     def _models_loaded(self) -> bool:
         raise NotImplementedError
 
+    def unload(self) -> None:
+        """Release model weights from GPU/CPU memory."""
+        raise NotImplementedError
+
     @contextmanager
     def track_inference(self) -> Iterator[None]:
         """Hold the model lock for the duration of one inference call.

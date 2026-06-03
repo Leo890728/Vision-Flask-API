@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ultralytics import YOLO
 
 from config import Config, ModelConfig
 from errors import APIError
 from services.backends.model_backend import BaseModelBackend, resolve_yolo_class_ids
+
+if TYPE_CHECKING:
+    from services.infra.model_pool import ModelPool
 
 
 class _YOLODetectionBackend(BaseModelBackend):
@@ -22,6 +25,11 @@ class _YOLODetectionBackend(BaseModelBackend):
         self._model = YOLO(self.model_cfg.model_path)
         self._ready = True
         self._last_error = None
+
+    def unload(self) -> None:
+        del self._model
+        self._model = None
+        self._ready = False
 
     def warmup(self, sample_image_path: str | None = None) -> None:
         if self._model is None or sample_image_path is None:
@@ -129,8 +137,14 @@ class _YOLODetectionBackend(BaseModelBackend):
 
 
 class DetectionService:
-    def __init__(self, config: Config, backends: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        config: Config,
+        backends: dict[str, Any] | None = None,
+        pool: ModelPool | None = None,
+    ):
         self.config = config
+        self._pool = pool
         if backends is None:
             backends = {
                 name: _YOLODetectionBackend(config, model_cfg)
@@ -160,19 +174,31 @@ class DetectionService:
         return self.is_busy_for(self.config.detect_default_model)
 
     def load(self) -> None:
-        for backend in self.backends.values():
+        if self._pool:
+            # With a pool, only pre-load the default backend so all models don't
+            # occupy GPU simultaneously at startup.
+            backend = self._backend_for(self.config.detect_default_model)
             try:
-                backend.load()
+                self._pool.ensure_loaded(backend)
             except Exception as exc:
-                if hasattr(backend, "_ready"):
-                    backend._ready = False
-                if hasattr(backend, "_last_error"):
-                    backend._last_error = str(exc)
+                backend._ready = False
+                backend._last_error = str(exc)
                 logging.warning("Failed to load detection model %s: %s", backend.name, exc)
+        else:
+            for backend in self.backends.values():
+                try:
+                    backend.load()
+                except Exception as exc:
+                    if hasattr(backend, "_ready"):
+                        backend._ready = False
+                    if hasattr(backend, "_last_error"):
+                        backend._last_error = str(exc)
+                    logging.warning("Failed to load detection model %s: %s", backend.name, exc)
 
     def warmup(self, sample_image_path: str | None = None) -> None:
         for backend in self.backends.values():
-            backend.warmup(sample_image_path=sample_image_path)
+            if backend.is_ready:
+                backend.warmup(sample_image_path=sample_image_path)
 
     def metadata(self) -> dict[str, Any]:
         return {
@@ -188,7 +214,10 @@ class DetectionService:
         classes: list[int | str] | None,
         detect_model: str | None = None,
     ) -> list[int] | None:
-        return self._backend_for(detect_model).resolve_class_ids(classes)
+        backend = self._backend_for(detect_model)
+        if self._pool:
+            self._pool.ensure_loaded(backend)
+        return backend.resolve_class_ids(classes)
 
     def detect(
         self,
@@ -198,7 +227,10 @@ class DetectionService:
         class_ids: list[int] | None = None,
         overlay: str = "none",
     ) -> dict[str, Any]:
-        return self._backend_for(detect_model).detect(
+        backend = self._backend_for(detect_model)
+        if self._pool:
+            self._pool.ensure_loaded(backend)
+        return backend.detect(
             image_path=image_path,
             conf=conf,
             class_ids=class_ids,

@@ -10,6 +10,7 @@ from services.backends.detection_service import DetectionService
 from services.usecases.detection_pipeline import DetectionPipeline
 from services.infra.job_service import JobService
 from services.infra.metrics_service import MetricsService
+from services.infra.model_pool import ModelPool
 from services.usecases.segment_use_case import SegmentUseCase
 from services.usecases.segmentation_pipeline import SegmentationPipeline
 from services.backends.segmentation_service import SegmentationService
@@ -62,18 +63,20 @@ def build_app_services(
     detection_service: DetectionService | None = None,
     storage_service: StorageService | None = None,
 ) -> AppServices:
+    pool = ModelPool(max_loaded=config.max_loaded_models)
     segmentation_service = segmentation_service or SegmentationService(
         config=config,
         sam3_backend=sam3_backend,
         yolo_seg_backend=yolo_seg_backend,
+        pool=pool,
     )
     if detection_service is None:
         if detection_backends is not None:
-            detection_service = DetectionService(config, backends=detection_backends)
+            detection_service = DetectionService(config, backends=detection_backends, pool=pool)
         elif detection_backend is not None:
-            detection_service = DetectionService(config, backends={detection_backend.name: detection_backend})
+            detection_service = DetectionService(config, backends={detection_backend.name: detection_backend}, pool=pool)
         else:
-            detection_service = DetectionService(config)
+            detection_service = DetectionService(config, pool=pool)
     storage_service = storage_service or StorageService(config)
     upload_service = UploadService(config=config, storage_service=storage_service)
     rate_limiter = InMemoryRateLimiter(config.rate_limit_per_minute)
