@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from api.request_models import SegmentParams
-from services.contexts import RequestContext
-from services.use_case import BaseSyncUseCase
+from services.usecases.contexts import RequestContext
+from services.usecases.use_case import BaseSyncUseCase
 
 
 class SegmentUseCase(BaseSyncUseCase):

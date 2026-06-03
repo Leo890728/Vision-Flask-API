@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from services.cache_service import CacheService
-from services.job_service import JobService
-from services.metrics_service import MetricsService
-from services.webhook_retry_service import WebhookRetryService
+from services.infra.cache_service import CacheService
+from services.infra.job_service import JobService
+from services.infra.metrics_service import MetricsService
+from services.infra.webhook_retry_service import WebhookRetryService
 
 try:
     import torch

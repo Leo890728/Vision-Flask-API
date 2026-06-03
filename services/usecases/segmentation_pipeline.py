@@ -6,10 +6,10 @@ import time
 from typing import Any
 
 from config import Config
-from services.metrics_service import MetricsService
-from services.segmentation_service import SegmentationService
-from services.storage_service import StorageService
-from services.upload_service import UploadService
+from services.infra.metrics_service import MetricsService
+from services.backends.segmentation_service import SegmentationService
+from services.infra.storage_service import StorageService
+from services.infra.upload_service import UploadService
 
 try:
     import cv2

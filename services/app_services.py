@@ -4,18 +4,18 @@ from dataclasses import dataclass
 
 from config import Config
 from middlewares.rate_limit import InMemoryRateLimiter
-from services.cache_service import CacheService
-from services.detect_use_case import DetectUseCase
-from services.detection_service import DetectionService
-from services.detection_pipeline import DetectionPipeline
-from services.job_service import JobService
-from services.metrics_service import MetricsService
-from services.segment_use_case import SegmentUseCase
-from services.segmentation_pipeline import SegmentationPipeline
-from services.segmentation_service import SegmentationService
-from services.storage_service import StorageService
-from services.upload_service import UploadService
-from services.webhook_retry_service import WebhookRetryService
+from services.infra.cache_service import CacheService
+from services.usecases.detect_use_case import DetectUseCase
+from services.backends.detection_service import DetectionService
+from services.usecases.detection_pipeline import DetectionPipeline
+from services.infra.job_service import JobService
+from services.infra.metrics_service import MetricsService
+from services.usecases.segment_use_case import SegmentUseCase
+from services.usecases.segmentation_pipeline import SegmentationPipeline
+from services.backends.segmentation_service import SegmentationService
+from services.infra.storage_service import StorageService
+from services.infra.upload_service import UploadService
+from services.infra.webhook_retry_service import WebhookRetryService
 
 
 @dataclass

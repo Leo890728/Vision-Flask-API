@@ -6,7 +6,7 @@ import uuid
 
 from flask import Flask, g, has_request_context, request
 
-from services.metrics_service import MetricsService
+from services.infra.metrics_service import MetricsService
 
 
 class RequestIDFilter(logging.Filter):

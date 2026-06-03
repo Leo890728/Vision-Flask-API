@@ -5,7 +5,7 @@ from flask import Blueprint, Flask, jsonify, send_from_directory
 from api.openapi import openapi_spec
 from middlewares.auth import require_api_key
 from services.app_services import AppServices
-from services.metrics_exporter import render_metrics_text
+from services.infra.metrics_exporter import render_metrics_text
 
 
 def register_system_routes(app: Flask, services: AppServices) -> None:

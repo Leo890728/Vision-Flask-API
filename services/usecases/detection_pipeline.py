@@ -7,9 +7,9 @@ from typing import Any
 
 from config import Config
 from errors import APIError
-from services.metrics_service import MetricsService
-from services.storage_service import StorageService
-from services.upload_service import UploadService
+from services.infra.metrics_service import MetricsService
+from services.infra.storage_service import StorageService
+from services.infra.upload_service import UploadService
 
 
 class DetectionPipeline:

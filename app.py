@@ -7,7 +7,7 @@ from pathlib import Path
 
 from flask import Flask
 
-from api.errors import register_error_handlers
+from api.error_handlers import register_error_handlers
 from api.parsers import parse_bool
 from api.request_hooks import RequestIDFilter, register_request_hooks
 from config import Config
@@ -17,7 +17,7 @@ from routes.jobs import register_job_routes
 from routes.segment import register_segment_routes
 from routes.system import register_system_routes
 from services.app_services import build_app_services
-from services.webhook_utils import post_webhook
+from services.infra.webhook_utils import post_webhook
 
 
 def _configure_logging() -> None:

@@ -8,7 +8,7 @@ from PIL import Image, UnidentifiedImageError
 from api.parsers import validate_upload_filename
 from config import Config
 from errors import APIError
-from services.storage_service import StorageService
+from services.infra.storage_service import StorageService
 
 
 class UploadService:

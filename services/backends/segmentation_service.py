@@ -11,7 +11,7 @@ from ultralytics.models.sam.predict import SAM3Predictor
 
 from config import Config
 from errors import APIError
-from services.model_backend import BaseModelBackend, resolve_yolo_class_ids
+from services.backends.model_backend import BaseModelBackend, resolve_yolo_class_ids
 
 
 def _build_segmentation_payload(results: Any, overlay: str) -> dict[str, Any]:

@@ -6,12 +6,12 @@ from werkzeug.datastructures import FileStorage
 
 from config import Config
 from errors import APIError
-from services.cache_service import CacheService
-from services.contexts import RequestContext, UseCaseResult
-from services.job_service import JobService
-from services.metrics_service import MetricsService
-from services.storage_service import StorageService
-from services.upload_service import UploadService
+from services.infra.cache_service import CacheService
+from services.usecases.contexts import RequestContext, UseCaseResult
+from services.infra.job_service import JobService
+from services.infra.metrics_service import MetricsService
+from services.infra.storage_service import StorageService
+from services.infra.upload_service import UploadService
 
 
 class BaseSyncUseCase:

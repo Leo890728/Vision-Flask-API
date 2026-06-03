@@ -6,7 +6,7 @@ from ultralytics import YOLO
 
 from config import Config
 from errors import APIError
-from services.model_backend import BaseModelBackend, resolve_yolo_class_ids
+from services.backends.model_backend import BaseModelBackend, resolve_yolo_class_ids
 
 
 class DetectionService(BaseModelBackend):

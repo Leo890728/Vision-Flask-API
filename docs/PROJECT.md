@@ -9,21 +9,30 @@
 ## Architecture
 - `app.py`: Flask app factory, route registration, runtime startup.
 - `config.py`: environment-driven settings.
-- `api/request_models.py`: Pydantic request parameter models.
+- `errors.py`: `APIError` domain exception.
+- `api/error_handlers.py`: Flask error handlers and JSON error responses.
+- `api/request_models.py`: Pydantic request parameter models (single source of parameter parsing).
+- `api/parsers.py`: shared parsing primitives (`parse_bool`, `parse_task`, `validate_upload_filename`).
 - `routes/`: HTTP boundary and response formatting.
-- `services/app_services.py`: dependency composition.
-- `services/segmentation_service.py`: task-level segmentation service with private SAM3 and YOLO-seg backends.
-- `services/detection_service.py`: task-level detection service.
-- `services/segmentation_pipeline.py`: segmentation inference timing, output rendering, and response shaping.
-- `services/detection_pipeline.py`: detection inference timing, overlay rendering, and response shaping.
-- `services/segment_use_case.py`: single-image segment workflow, including cache and auto-queue.
-- `services/detect_use_case.py`: single-image detect workflow, including cache and auto-queue.
-- `services/upload_service.py`: upload save, filename validation, image decode, and pixel limit.
-- `services/job_service.py`: SQLite-backed job queue.
-- `services/cache_service.py`: in-memory TTL cache.
-- `services/metrics_service.py`: runtime counters and latency metrics.
-- `services/storage_service.py`: output file persistence and cleanup.
-- `services/webhook_retry_service.py`: background webhook retry worker.
+- `services/app_services.py`: dependency composition (composition root).
+
+Service layers (`services/`):
+- `backends/`: model inference backends.
+  - `model_backend.py`: shared backend base (lock, inference counter, `is_ready`/`is_busy`) and `resolve_yolo_class_ids`.
+  - `segmentation_service.py`: task-level segmentation service with private SAM3 and YOLO-seg backends.
+  - `detection_service.py`: task-level detection service.
+- `usecases/`: application orchestration.
+  - `use_case.py`: base sync/auto-queue workflow shared by detect and segment.
+  - `segment_use_case.py` / `detect_use_case.py`: single-image workflows (cache, auto-queue, run now).
+  - `segmentation_pipeline.py` / `detection_pipeline.py`: inference timing, output/overlay rendering, response shaping.
+  - `contexts.py`: `RequestContext` and `UseCaseResult` DTOs.
+- `infra/`: cross-cutting infrastructure.
+  - `upload_service.py`: upload save, filename validation, image decode, and pixel limit.
+  - `job_service.py`: SQLite-backed job queue.
+  - `cache_service.py`: in-memory TTL cache.
+  - `metrics_service.py` / `metrics_exporter.py`: runtime counters, latency metrics, Prometheus export.
+  - `storage_service.py`: output file persistence and cleanup.
+  - `webhook_retry_service.py` / `webhook_utils.py`: background webhook retry worker and delivery.
 
 ## Runtime Configuration
 Important environment variables:
