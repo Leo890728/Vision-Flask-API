@@ -48,8 +48,8 @@ Server default: `http://127.0.0.1:5000`
 - `GET /v1/jobs/{job_id}/export` (requires `X-API-Key`)
 
 `POST /v1/segment` supports:
-- `segment_model=sam3` for text prompt, point prompt (`points`, `point_labels`), or box prompt (`boxes`)
-- `segment_model=yolo_seg` for YOLO segmentation with optional `classes`
+- SAM-style segment models such as `sam3` or `sam3.1` for text prompt, point prompt (`points`, `point_labels`), or box prompt (`boxes`)
+- YOLO segmentation models such as `yolo_seg` with optional `classes`
 - output formats: `mask_png`, `rle`, `polygon`, `alpha_matte`
 
 `POST /v1/detect` supports (bbox only):

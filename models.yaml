@@ -8,9 +8,17 @@
 # Optional:          default_conf (0.25), half (true), device (auto).
 
 models:
-  sam3:
+  sam3.1:
     task: segment
     model_path: models/sam3.1_multiplex.pt
+    default_conf: 0.25
+    half: true
+    device: auto
+    input_modes: [prompt, points, boxes]
+  
+  sam3:
+    task: segment
+    model_path: models/sam3.pt
     default_conf: 0.25
     half: true
     device: auto

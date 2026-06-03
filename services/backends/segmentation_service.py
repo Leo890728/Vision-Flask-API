@@ -9,7 +9,7 @@ from ultralytics import YOLO
 from ultralytics.models.sam import SAM3SemanticPredictor
 from ultralytics.models.sam.predict import SAM3Predictor
 
-from config import Config
+from config import Config, ModelConfig
 from errors import APIError
 from services.backends.model_backend import BaseModelBackend, resolve_yolo_class_ids
 
@@ -58,8 +58,8 @@ def _build_segmentation_payload(results: Any, overlay: str) -> dict[str, Any]:
 
 
 class _SAM3Backend(BaseModelBackend):
-    def __init__(self, config: Config):
-        super().__init__(config, config.models["sam3"])
+    def __init__(self, config: Config, model_cfg: ModelConfig | None = None):
+        super().__init__(config, model_cfg or config.models["sam3"])
         self._predictor: SAM3SemanticPredictor | None = None
         self._visual_predictor: SAM3Predictor | None = None
 
@@ -131,7 +131,7 @@ class _SAM3Backend(BaseModelBackend):
         overlay: str = "none",
     ) -> dict[str, Any]:
         if not self.is_ready or self._predictor is None or self._visual_predictor is None:
-            raise APIError("MODEL_NOT_READY", "SAM3 model is not ready.", 503)
+            raise APIError("MODEL_NOT_READY", f"SAM3 model '{self.model_cfg.name}' is not ready.", 503)
         if conf is None:
             conf = self.model_cfg.default_conf
         if not prompt and not points and not boxes:
@@ -156,14 +156,19 @@ class _SAM3Backend(BaseModelBackend):
                     results = self._predictor(text=[prompt] if prompt else None, **kwargs)
         except Exception as exc:
             self._last_error = str(exc)
-            raise APIError("INFERENCE_FAILED", "SAM3 inference failed.", 500, {"reason": str(exc)}) from exc
+            raise APIError(
+                "INFERENCE_FAILED",
+                "SAM3 inference failed.",
+                500,
+                {"reason": str(exc), "segment_model": self.model_cfg.name},
+            ) from exc
 
         return _build_segmentation_payload(results, overlay)
 
 
 class _YOLOSegBackend(BaseModelBackend):
-    def __init__(self, config: Config):
-        super().__init__(config, config.models["yolo_seg"])
+    def __init__(self, config: Config, model_cfg: ModelConfig | None = None):
+        super().__init__(config, model_cfg or config.models["yolo_seg"])
         self._model: YOLO | None = None
 
     def _models_loaded(self) -> bool:
@@ -211,7 +216,7 @@ class _YOLOSegBackend(BaseModelBackend):
         if not classes:
             return None
         if not self.is_ready or self._model is None:
-            raise APIError("MODEL_NOT_READY", "YOLO segmentation model is not ready.", 503)
+            raise APIError("MODEL_NOT_READY", f"YOLO segmentation model '{self.model_cfg.name}' is not ready.", 503)
         return resolve_yolo_class_ids(self._model, classes)
 
     def segment(
@@ -222,7 +227,7 @@ class _YOLOSegBackend(BaseModelBackend):
         overlay: str = "none",
     ) -> dict[str, Any]:
         if not self.is_ready or self._model is None:
-            raise APIError("MODEL_NOT_READY", "YOLO segmentation model is not ready.", 503)
+            raise APIError("MODEL_NOT_READY", f"YOLO segmentation model '{self.model_cfg.name}' is not ready.", 503)
         if conf is None:
             conf = self.model_cfg.default_conf
 
@@ -242,7 +247,12 @@ class _YOLOSegBackend(BaseModelBackend):
                 results = self._model.predict(**predict_kwargs)
         except Exception as exc:
             self._last_error = str(exc)
-            raise APIError("INFERENCE_FAILED", "YOLO segmentation inference failed.", 500, {"reason": str(exc)}) from exc
+            raise APIError(
+                "INFERENCE_FAILED",
+                "YOLO segmentation inference failed.",
+                500,
+                {"reason": str(exc), "segment_model": self.model_cfg.name},
+            ) from exc
 
         return _build_segmentation_payload(results, overlay)
 
@@ -253,12 +263,25 @@ class SegmentationService:
         config: Config,
         sam3_backend: Any | None = None,
         yolo_seg_backend: Any | None = None,
+        backends: dict[str, Any] | None = None,
         pool: ModelPool | None = None,
     ):
         self.config = config
         self._pool = pool
-        self.sam3_backend = sam3_backend or _SAM3Backend(config)
-        self.yolo_seg_backend = yolo_seg_backend or _YOLOSegBackend(config)
+        if backends is None:
+            injected = {}
+            if sam3_backend is not None:
+                injected[sam3_backend.name] = sam3_backend
+            if yolo_seg_backend is not None:
+                injected[yolo_seg_backend.name] = yolo_seg_backend
+            backends = {
+                name: injected.get(name) or self._build_backend(model_cfg)
+                for name, model_cfg in config.models.items()
+                if model_cfg.task == "segment"
+            }
+        self.backends = dict(backends)
+        self.sam3_backend = self.backends.get("sam3")
+        self.yolo_seg_backend = self.backends.get("yolo_seg")
 
     def load(self) -> None:
         if self._pool:
@@ -272,11 +295,16 @@ class SegmentationService:
                 backend._last_error = str(exc)
                 logging.warning("Failed to load segmentation model %s: %s", backend.name, exc)
         else:
-            self.sam3_backend.load()
-            self.yolo_seg_backend.load()
+            for backend in self.backends.values():
+                try:
+                    backend.load()
+                except Exception as exc:
+                    backend._ready = False
+                    backend._last_error = str(exc)
+                    logging.warning("Failed to load segmentation model %s: %s", backend.name, exc)
 
     def warmup(self, sample_image_path: str | None = None) -> None:
-        for backend in (self.sam3_backend, self.yolo_seg_backend):
+        for backend in self.backends.values():
             if backend.is_ready:
                 backend.warmup(sample_image_path=sample_image_path)
 
@@ -298,10 +326,7 @@ class SegmentationService:
     def metadata(self) -> dict[str, Any]:
         return {
             "default_model": self.config.segment_default_model,
-            "backends": {
-                "sam3": self.sam3_backend.metadata(),
-                "yolo_seg": self.yolo_seg_backend.metadata(),
-            },
+            "backends": {name: backend.metadata() for name, backend in self.backends.items()},
         }
 
     def segment(
@@ -316,16 +341,16 @@ class SegmentationService:
         backend = self._backend_for(segment_model)
         if self._pool:
             self._pool.ensure_loaded(backend)
-        if segment_model == "yolo_seg":
-            return self.yolo_seg_backend.segment(
+        if self._uses_classes(backend):
+            return backend.segment(
                 image_path=image_path,
                 conf=conf,
                 classes=classes,
                 overlay=overlay,
             )
-        if segment_model == "sam3":
-            return self.sam3_backend.segment(
-                image_path,
+        if self._uses_visual_prompts(backend):
+            return backend.segment(
+                image_path=image_path,
                 prompt=prompt_inputs["prompt"],
                 conf=conf,
                 points=prompt_inputs["points"],
@@ -336,9 +361,43 @@ class SegmentationService:
         raise APIError("INVALID_SEGMENT_MODEL", f"Unsupported segment_model: {segment_model}", 400)
 
     def _backend_for(self, segment_model: str):
-        normalized = str(segment_model or "sam3").strip().lower().replace("-", "_")
-        if normalized == "sam3":
-            return self.sam3_backend
-        if normalized == "yolo_seg":
-            return self.yolo_seg_backend
-        raise APIError("INVALID_SEGMENT_MODEL", f"Unsupported segment_model: {segment_model}", 400)
+        name = str(segment_model or self.config.segment_default_model).strip()
+        backend = self.backends.get(name)
+        if backend is not None:
+            return backend
+
+        aliases = {
+            "sam": "sam3",
+            "yoloseg": "yolo_seg",
+            "yolo-seg": "yolo_seg",
+            "yolo_segment": "yolo_seg",
+            "yolo_segmentation": "yolo_seg",
+        }
+        alias = aliases.get(name.lower())
+        if alias and alias in self.backends:
+            return self.backends[alias]
+
+        segment_models = sorted(name for name, cfg in self.config.models.items() if cfg.task == "segment")
+        raise APIError(
+            "INVALID_SEGMENT_MODEL",
+            f"segment_model must be one of: {', '.join(segment_models)}.",
+            400,
+            {"available": segment_models},
+        )
+
+    def _build_backend(self, model_cfg: ModelConfig):
+        if "classes" in model_cfg.input_modes and not self._has_visual_modes(model_cfg):
+            return _YOLOSegBackend(self.config, model_cfg)
+        return _SAM3Backend(self.config, model_cfg)
+
+    @staticmethod
+    def _has_visual_modes(model_cfg: ModelConfig) -> bool:
+        return any(mode in model_cfg.input_modes for mode in ("prompt", "points", "boxes"))
+
+    @staticmethod
+    def _uses_visual_prompts(backend: Any) -> bool:
+        return any(mode in backend.model_cfg.input_modes for mode in ("prompt", "points", "boxes"))
+
+    @staticmethod
+    def _uses_classes(backend: Any) -> bool:
+        return "classes" in backend.model_cfg.input_modes and not SegmentationService._uses_visual_prompts(backend)

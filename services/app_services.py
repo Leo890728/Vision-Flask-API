@@ -56,6 +56,7 @@ class AppServices:
 def build_app_services(
     config: Config,
     sam3_backend=None,
+    segment_backends: dict | None = None,
     detection_backend=None,
     detection_backends: dict | None = None,
     yolo_seg_backend=None,
@@ -68,6 +69,7 @@ def build_app_services(
         config=config,
         sam3_backend=sam3_backend,
         yolo_seg_backend=yolo_seg_backend,
+        backends=segment_backends,
         pool=pool,
     )
     if detection_service is None:

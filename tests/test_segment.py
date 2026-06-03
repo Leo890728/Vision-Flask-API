@@ -42,6 +42,23 @@ class SegmentTest(BaseAPITestCase):
         self.assertEqual(mask_response.content_type, "image/png")
         self.assertIsNotNone(payload["overlay_url"])
 
+    def test_segment_non_default_sam_model_routes_to_selected_backend(self):
+        response = self.client.post(
+            "/v1/segment",
+            data={
+                "image": (make_image_bytes(), "sample.png"),
+                "segment_model": "sam3.1",
+                "prompt": "a person",
+            },
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["segment_model"], "sam3.1")
+        self.assertEqual(self.fake_service.call_count, 0)
+        self.assertEqual(self.fake_sam31_backend.call_count, 1)
+
     def test_segment_output_formats(self):
         data = {
             "image": (make_image_bytes(), "sample.png"),
@@ -134,6 +151,7 @@ class SegmentTest(BaseAPITestCase):
         payload = response.get_json()
         self.assertEqual(payload["mode"], "auto_queued")
         self.assertIn("job_id", payload)
+        self._wait_job_terminal(payload["job_id"], attempts=80)
 
     def test_batch_segment(self):
         data = {

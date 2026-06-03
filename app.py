@@ -83,6 +83,7 @@ def _initialize_runtime(app: Flask) -> None:
 
 def create_app(
     sam3_backend=None,
+    segment_backends=None,
     detection_backend=None,
     detection_backends=None,
     yolo_seg_backend=None,
@@ -98,6 +99,7 @@ def create_app(
     built = build_app_services(
         config=config,
         sam3_backend=sam3_backend,
+        segment_backends=segment_backends,
         detection_backend=detection_backend,
         detection_backends=detection_backends,
         yolo_seg_backend=yolo_seg_backend,

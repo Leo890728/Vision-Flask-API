@@ -176,7 +176,11 @@ def openapi_spec(config: Config) -> dict:
                                         "image": {"type": "string", "format": "binary"},
                                         "segment_model": {
                                             "type": "string",
-                                            "enum": ["sam3", "yolo_seg"],
+                                            "enum": [
+                                                name
+                                                for name, model in config.models.items()
+                                                if model.task == "segment"
+                                            ],
                                             "default": config.segment_default_model,
                                             "description": "Segmentation backend. sam3 uses prompts/points/boxes; yolo_seg uses YOLO segmentation with optional classes.",
                                         },
@@ -301,7 +305,11 @@ def openapi_spec(config: Config) -> dict:
                                         },
                                         "segment_model": {
                                             "type": "string",
-                                            "enum": ["sam3", "yolo_seg"],
+                                            "enum": [
+                                                name
+                                                for name, model in config.models.items()
+                                                if model.task == "segment"
+                                            ],
                                             "default": config.segment_default_model,
                                         },
                                         "prompt": {"type": "string"},

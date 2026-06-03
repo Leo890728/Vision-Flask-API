@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 from PIL import Image
@@ -15,20 +16,30 @@ from app import create_app
 
 
 class FakeSAM3Backend:
-    def __init__(self):
+    def __init__(self, name: str = "sam3"):
         self.is_ready = True
         self.last_error = None
         self.is_busy = False
         self.sleep_s = 0.0
         self.call_count = 0
-        self.name = "sam3"
+        self.name = name
         self.task = "segment"
+        self.model_cfg = SimpleNamespace(name=name, input_modes=("prompt", "points", "boxes"))
+
+    def load(self):
+        self.is_ready = True
+
+    def unload(self):
+        self.is_ready = False
+
+    def warmup(self, sample_image_path: str | None = None):
+        _ = sample_image_path
 
     def metadata(self):
         return {
-            "name": "sam3",
+            "name": self.name,
             "task": "segment",
-            "model_path": "models/sam3.1_multiplex.pt",
+            "model_path": f"models/{self.name}.pt",
             "default_conf": 0.25,
             "half": True,
             "device": "auto",
@@ -73,9 +84,13 @@ class FakeDetectionBackend:
         self._names = {0: "person", 1: "car"}
         self.name = name
         self.task = "detect"
+        self.model_cfg = SimpleNamespace(name=name, input_modes=("classes",))
 
     def load(self):
         self.is_ready = True
+
+    def unload(self):
+        self.is_ready = False
 
     def warmup(self, sample_image_path: str | None = None):
         _ = sample_image_path
@@ -148,6 +163,16 @@ class FakeYOLOSegBackend:
         self._names = {0: "person", 1: "car"}
         self.name = "yolo_seg"
         self.task = "segment"
+        self.model_cfg = SimpleNamespace(name="yolo_seg", input_modes=("classes",))
+
+    def load(self):
+        self.is_ready = True
+
+    def unload(self):
+        self.is_ready = False
+
+    def warmup(self, sample_image_path: str | None = None):
+        _ = sample_image_path
 
     def metadata(self):
         return {
@@ -201,17 +226,21 @@ class BaseAPITestCase(unittest.TestCase):
         os.environ["CACHE_TTL_SECONDS"] = "3600"
         os.environ["WEBHOOK_MAX_RETRIES"] = "3"
         os.environ["WEBHOOK_RETRY_BASE_SECONDS"] = "0.01"
-        self.fake_service = FakeSAM3Backend()
+        self.fake_service = FakeSAM3Backend("sam3")
+        self.fake_sam31_backend = FakeSAM3Backend("sam3.1")
         self.fake_detection_backend = FakeDetectionBackend("yolo26n")
         self.fake_detection_backend_b = FakeDetectionBackend("yolo11n")
         self.fake_yolo_seg_backend = FakeYOLOSegBackend()
         self.app = create_app(
-            sam3_backend=self.fake_service,
+            segment_backends={
+                "sam3": self.fake_service,
+                "sam3.1": self.fake_sam31_backend,
+                "yolo_seg": self.fake_yolo_seg_backend,
+            },
             detection_backends={
                 "yolo26n": self.fake_detection_backend,
                 "yolo11n": self.fake_detection_backend_b,
             },
-            yolo_seg_backend=self.fake_yolo_seg_backend,
         )
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()

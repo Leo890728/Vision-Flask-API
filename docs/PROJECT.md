@@ -62,8 +62,9 @@ the metrics `model` label and `/v1/models` metadata. Defaults:
 
 Add a model by appending an entry (task + model_path, optional default_conf/half/device)
 and wiring a backend; no code/env changes are needed for its settings.
-All `task: detect` entries are loaded by the detection service at startup so
-they can be selected per request with `detect_model`.
+All `task: detect` entries are routed by the detection service, and all
+`task: segment` entries are routed by the segmentation service. Per-request
+selection uses `detect_model` or `segment_model`.
 
 ## Key Flows
 - `/v1/segment`: synchronous segmentation; can auto-queue when selected segment backend is busy.

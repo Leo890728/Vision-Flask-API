@@ -10,13 +10,12 @@ from errors import APIError
 
 
 SegmentOverlay = Literal["none", "bbox", "mask", "both"]
-SegmentModel = Literal["sam3", "yolo_seg"]
 DetectOverlay = Literal["none", "bbox"]
 OutputFormat = Literal["mask_png", "rle", "polygon", "alpha_matte"]
 
 
 class SegmentParams(BaseModel):
-    segment_model: SegmentModel = "sam3"
+    segment_model: str = "sam3"
     prompt: str | None = None
     classes: list[int | str] | None = None
     points: list[list[float]] | None = None
@@ -59,15 +58,40 @@ class SegmentParams(BaseModel):
             if len(point_labels) != len(points):
                 raise APIError("INVALID_PROMPT_DATA", "point_labels count must match points count.", 400)
 
-        if segment_model == "sam3" and require_input and not (prompt or points or boxes):
-            raise APIError("MISSING_PROMPT", "Provide prompt, points, or boxes.", 400)
-        if segment_model == "yolo_seg" and (points or boxes):
+        modes = set(config.models[segment_model].input_modes)
+        visual_modes = modes & {"prompt", "points", "boxes"}
+
+        if points and "points" not in modes:
             raise APIError(
                 "UNSUPPORTED_SEGMENT_PROMPT",
-                "YOLO segmentation supports classes or prompt text as a class filter, not points or boxes.",
+                f"{segment_model} does not support point prompts.",
                 400,
             )
-        if segment_model == "yolo_seg" and classes is None and prompt:
+        if boxes and "boxes" not in modes:
+            raise APIError(
+                "UNSUPPORTED_SEGMENT_PROMPT",
+                f"{segment_model} does not support box prompts.",
+                400,
+            )
+        if prompt and "prompt" not in modes and "classes" not in modes:
+            raise APIError(
+                "UNSUPPORTED_SEGMENT_PROMPT",
+                f"{segment_model} does not support text prompts.",
+                400,
+            )
+        if classes is not None and "classes" not in modes:
+            raise APIError(
+                "UNSUPPORTED_SEGMENT_PROMPT",
+                f"{segment_model} does not support class filters.",
+                400,
+            )
+        if visual_modes and require_input and not (
+            (prompt and "prompt" in modes)
+            or (points and "points" in modes)
+            or (boxes and "boxes" in modes)
+        ):
+            raise APIError("MISSING_PROMPT", "Provide prompt, points, or boxes.", 400)
+        if "classes" in modes and classes is None and prompt and "prompt" not in modes:
             classes = [prompt]
 
         return cls(
@@ -114,13 +138,29 @@ def _clean_optional_str(value: Any) -> str | None:
     return text or None
 
 
-def _parse_segment_model(raw: Any, config: Config) -> SegmentModel:
-    value = str(raw or config.segment_default_model or "sam3").strip().lower().replace("-", "_")
-    if value in {"sam3", "sam"}:
-        return "sam3"
-    if value in {"yolo_seg", "yoloseg", "yolo_segment", "yolo_segmentation"}:
-        return "yolo_seg"
-    raise APIError("INVALID_SEGMENT_MODEL", "segment_model must be one of: sam3, yolo_seg.", 400)
+def _parse_segment_model(raw: Any, config: Config) -> str:
+    value = str(raw or config.segment_default_model or "sam3").strip()
+    if value in config.models and config.models[value].task == "segment":
+        return value
+
+    aliases = {
+        "sam": "sam3",
+        "yoloseg": "yolo_seg",
+        "yolo-seg": "yolo_seg",
+        "yolo_segment": "yolo_seg",
+        "yolo_segmentation": "yolo_seg",
+    }
+    alias = aliases.get(value.lower())
+    if alias in config.models and config.models[alias].task == "segment":
+        return alias
+
+    segment_models = sorted(name for name, model in config.models.items() if model.task == "segment")
+    raise APIError(
+        "INVALID_SEGMENT_MODEL",
+        f"segment_model must be one of: {', '.join(segment_models)}.",
+        400,
+        {"available": segment_models},
+    )
 
 
 def _parse_detect_model(raw: Any, config: Config) -> str:
@@ -136,7 +176,7 @@ def _parse_detect_model(raw: Any, config: Config) -> str:
     )
 
 
-def _default_segment_conf(config: Config, segment_model: SegmentModel) -> float:
+def _default_segment_conf(config: Config, segment_model: str) -> float:
     return config.models[segment_model].default_conf
 
 

@@ -72,18 +72,18 @@ Single-image segmentation.
 
 Common fields:
 - `image` required
-- `segment_model` optional, `sam3` or `yolo_seg`, default `SEGMENT_DEFAULT_MODEL`
+- `segment_model` optional, any active segment model from `/v1/models`, default `SEGMENT_DEFAULT_MODEL`
 - `conf` optional, defaults to the selected `segment_model` entry in `models.yaml`
 - `overlay` optional, `none|bbox|mask|both`
 - `output_formats` optional JSON list or CSV: `mask_png`, `rle`, `polygon`, `alpha_matte`
 
-For `segment_model=sam3`:
+For SAM-style models with `input_modes` containing `prompt`, `points`, or `boxes`:
 - `prompt` optional, required if no points/boxes
 - `points` optional JSON `[[x,y], ...]`
 - `point_labels` optional JSON `[1,0,...]`
 - `boxes` optional JSON `[x1,y1,x2,y2]` or `[[...], ...]`
 
-For `segment_model=yolo_seg`:
+For YOLO-style segmentation models with `input_modes: [classes]`:
 - `classes` optional JSON list of class ids or names
 - `prompt` can be used as a single class-name filter when `classes` is omitted
 - `points` and `boxes` are not supported

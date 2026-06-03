@@ -42,6 +42,7 @@ class SystemTest(BaseAPITestCase):
 
         by_name = {model["name"]: model for model in payload["models"]}
         self.assertIn("sam3", by_name)
+        self.assertIn("sam3.1", by_name)
         self.assertIn("yolo26n", by_name)
         self.assertIn("yolo11n", by_name)
         self.assertIn("yolo_seg", by_name)
@@ -53,6 +54,7 @@ class SystemTest(BaseAPITestCase):
             "default_conf",
             "half",
             "device",
+            "input_modes",
             "ready",
             "busy",
             "last_error",
@@ -64,6 +66,9 @@ class SystemTest(BaseAPITestCase):
 
         self.assertTrue(by_name["sam3"]["active"])
         self.assertTrue(by_name["sam3"]["default"])
+        self.assertTrue(by_name["sam3.1"]["active"])
+        self.assertTrue(by_name["sam3.1"]["ready"])
+        self.assertEqual(by_name["sam3.1"]["input_modes"], ["prompt", "points", "boxes"])
         self.assertTrue(by_name["yolo26n"]["active"])
         self.assertTrue(by_name["yolo26n"]["default"])
         self.assertTrue(by_name["yolo11n"]["active"])
