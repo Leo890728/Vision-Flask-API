@@ -8,13 +8,8 @@ from pathlib import Path
 
 from flask import Blueprint, Flask, g, jsonify, request, send_file
 
-from api.parsers import (
-    parse_classes,
-    parse_detect_overlay,
-    parse_task,
-    validate_conf,
-)
-from api.request_models import SegmentParams
+from api.parsers import parse_task
+from api.request_models import DetectParams, SegmentParams
 from errors import APIError
 from middlewares.auth import require_api_key
 from middlewares.rate_limit import apply_rate_limit
@@ -53,18 +48,16 @@ def register_job_routes(app: Flask, services: AppServices) -> None:
                 "webhook_secret": webhook_secret,
             }
         else:
-            classes = parse_classes(request.form)
-            overlay = parse_detect_overlay(request.form.get("overlay"))
-            conf = validate_conf(request.form.get("conf"), config, default_conf=config.yolo_default_conf)
+            params = DetectParams.from_form(request.form, config)
             g.prompt = None
             source_path, _w, _h, decode_ms = services.detection_pipeline.save_and_validate_upload(upload, g.request_id)
             job_payload = {
                 "task": "detect",
                 "request_id": g.request_id,
                 "source_path": str(source_path),
-                "conf": conf,
-                "overlay": overlay,
-                "classes": classes,
+                "conf": params.conf,
+                "overlay": params.overlay,
+                "classes": params.classes,
                 "decode_ms": decode_ms,
                 "webhook_secret": webhook_secret,
             }
