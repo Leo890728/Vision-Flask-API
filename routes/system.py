@@ -38,6 +38,7 @@ def _model_catalog_response(services: AppServices) -> dict:
                 "default_conf": model_cfg.default_conf,
                 "half": model_cfg.half,
                 "device": model_cfg.device,
+                "input_modes": list(model_cfg.input_modes),
                 "ready": bool(runtime["ready"]) if runtime else False,
                 "busy": bool(runtime["busy"]) if runtime else False,
                 "last_error": runtime["last_error"] if runtime else None,

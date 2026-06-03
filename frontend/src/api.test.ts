@@ -16,6 +16,7 @@ describe("buildVisionFormData", () => {
     const form = buildVisionFormData({
       task: "detect",
       model: "yolo11n",
+      inputModes: ["classes"],
       image: new Blob(["image"], { type: "image/png" }),
       filename: "sample.png",
       controls: baseControls
@@ -32,6 +33,7 @@ describe("buildVisionFormData", () => {
     const form = buildVisionFormData({
       task: "segment",
       model: "sam3",
+      inputModes: ["prompt", "points", "boxes"],
       image: new Blob(["image"], { type: "image/png" }),
       filename: "sample.png",
       controls: {
@@ -58,6 +60,7 @@ describe("buildVisionFormData", () => {
     const form = buildVisionFormData({
       task: "segment",
       model: "yolo_seg",
+      inputModes: ["classes"],
       image: new Blob(["image"], { type: "image/png" }),
       filename: "sample.png",
       controls: {

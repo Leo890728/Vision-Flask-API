@@ -88,6 +88,14 @@ h2 {
 .field-group.two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.model-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 label {
@@ -564,6 +572,10 @@ input[type="range"] {
   .field-group.two-col,
   .checks,
   .timing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .field-group.two-col {
     grid-template-columns: 1fr;
   }
 }

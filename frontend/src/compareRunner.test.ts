@@ -29,6 +29,7 @@ describe("runPanel", () => {
         side: "A",
         task: "detect",
         model: "yolo26n",
+        inputModes: ["classes"],
         image: new Blob(["image"], { type: "image/png" }),
         filename: "sample.png",
         controls
@@ -50,6 +51,7 @@ describe("runPanel", () => {
         side: "B",
         task: "detect",
         model: "bad",
+        inputModes: ["classes"],
         image: new Blob(["image"], { type: "image/png" }),
         filename: "sample.png",
         controls
@@ -84,6 +86,7 @@ describe("runPanel", () => {
         side: "A",
         task: "detect",
         model: "yolo11n",
+        inputModes: ["classes"],
         image: new Blob(["image"], { type: "image/png" }),
         filename: "sample.png",
         controls

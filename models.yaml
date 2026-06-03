@@ -14,6 +14,7 @@ models:
     default_conf: 0.25
     half: true
     device: auto
+    input_modes: [prompt, points, boxes]
 
   yolo26n:
     task: detect
@@ -21,13 +22,15 @@ models:
     default_conf: 0.25
     half: true
     device: auto
-  
+    input_modes: [classes]
+
   yolo11n:
     task: detect
     model_path: models/yolo11n.pt
     default_conf: 0.25
     half: true
     device: auto
+    input_modes: [classes]
 
   yolo_seg:
     task: segment
@@ -35,3 +38,4 @@ models:
     default_conf: 0.25
     half: true
     device: auto
+    input_modes: [classes]

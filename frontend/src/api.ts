@@ -8,6 +8,7 @@ export interface ModelInfo {
   default_conf: number;
   half: boolean;
   device: string;
+  input_modes: string[];
   ready: boolean;
   busy: boolean;
   last_error: string | null;
@@ -46,6 +47,7 @@ export interface VisionControls {
 export interface VisionRequest {
   task: Task;
   model: string;
+  inputModes: string[];
   image: Blob;
   filename?: string;
   controls: VisionControls;
@@ -112,6 +114,7 @@ export function buildVisionFormData(request: VisionRequest): FormData {
   form.append("image", request.image, filename);
 
   const controls = request.controls;
+  const modes = new Set(request.inputModes);
   form.append("conf", String(controls.conf));
   if (controls.overlay) {
     form.append("overlay", controls.overlay);
@@ -119,7 +122,7 @@ export function buildVisionFormData(request: VisionRequest): FormData {
 
   if (request.task === "detect") {
     form.append("detect_model", request.model);
-    appendIfPresent(form, "classes", controls.classes);
+    if (modes.has("classes")) appendIfPresent(form, "classes", controls.classes);
     return form;
   }
 
@@ -127,26 +130,18 @@ export function buildVisionFormData(request: VisionRequest): FormData {
   if (controls.outputFormats.length > 0) {
     form.append("output_formats", JSON.stringify(controls.outputFormats));
   }
-
-  if (request.model === "sam3") {
-    appendIfPresent(form, "prompt", controls.prompt);
-    if (controls.points.length > 0) {
-      form.append("points", JSON.stringify(controls.points.map((point) => [point.x, point.y])));
-      form.append("point_labels", JSON.stringify(controls.points.map((point) => point.label)));
-    }
-    if (controls.boxes.length > 0) {
-      form.append(
-        "boxes",
-        JSON.stringify(controls.boxes.map((box) => [box.x1, box.y1, box.x2, box.y2]))
-      );
-    }
-  } else {
-    appendIfPresent(form, "classes", controls.classes);
-    if (!controls.classes.trim()) {
-      appendIfPresent(form, "prompt", controls.prompt);
-    }
+  if (modes.has("prompt")) appendIfPresent(form, "prompt", controls.prompt);
+  if (modes.has("points") && controls.points.length > 0) {
+    form.append("points", JSON.stringify(controls.points.map((p) => [p.x, p.y])));
+    form.append("point_labels", JSON.stringify(controls.points.map((p) => p.label)));
   }
-
+  if (modes.has("boxes") && controls.boxes.length > 0) {
+    form.append(
+      "boxes",
+      JSON.stringify(controls.boxes.map((b) => [b.x1, b.y1, b.x2, b.y2]))
+    );
+  }
+  if (modes.has("classes")) appendIfPresent(form, "classes", controls.classes);
   return form;
 }
 

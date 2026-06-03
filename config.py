@@ -26,9 +26,15 @@ class ModelConfig:
     default_conf: float
     half: bool
     device: str
+    input_modes: tuple[str, ...]  # e.g. ("prompt", "points", "boxes") or ("classes",)
 
 
 _VALID_TASKS = {"detect", "segment"}
+_VALID_INPUT_MODES = {"prompt", "points", "boxes", "classes"}
+_DEFAULT_INPUT_MODES: dict[str, tuple[str, ...]] = {
+    "detect": ("classes",),
+    "segment": ("prompt", "points", "boxes"),
+}
 _DEFAULT_MODELS_PATH = Path(__file__).resolve().parent / "models.yaml"
 
 
@@ -55,6 +61,19 @@ def _parse_model(name: str, raw: object) -> ModelConfig:
     if task not in _VALID_TASKS:
         raise ConfigError(f"Model '{name}' has invalid task '{task}'; must be one of {sorted(_VALID_TASKS)}.")
     conf = raw.get("default_conf", 0.25)
+    raw_modes = raw.get("input_modes")
+    if raw_modes is not None:
+        if not isinstance(raw_modes, list):
+            raise ConfigError(f"Model '{name}' input_modes must be a list.")
+        invalid = set(raw_modes) - _VALID_INPUT_MODES
+        if invalid:
+            raise ConfigError(
+                f"Model '{name}' has unknown input_modes: {sorted(invalid)}; "
+                f"valid values are {sorted(_VALID_INPUT_MODES)}."
+            )
+        input_modes: tuple[str, ...] = tuple(raw_modes)
+    else:
+        input_modes = _DEFAULT_INPUT_MODES.get(task, ())
     return ModelConfig(
         name=name,
         task=task,
@@ -62,6 +81,7 @@ def _parse_model(name: str, raw: object) -> ModelConfig:
         default_conf=float(conf if conf is not None else 0.25),
         half=_coerce_bool(raw.get("half"), True),
         device=str(raw.get("device") or "auto"),
+        input_modes=input_modes,
     )
 
 
