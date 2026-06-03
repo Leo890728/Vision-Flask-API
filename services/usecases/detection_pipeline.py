@@ -70,7 +70,9 @@ class DetectionPipeline:
             overlay=overlay,
         )
         infer_ms = (time.perf_counter() - infer_start) * 1000
-        self.metrics_service.observe_inference_latency(infer_ms)
+        self.metrics_service.observe_inference_latency(
+            infer_ms, task=self.detection_service.task, model=self.detection_service.name
+        )
 
         post_start = time.perf_counter()
         detections, overlay_url = self._render_detection_response(

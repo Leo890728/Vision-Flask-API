@@ -21,9 +21,13 @@ class FakeSAM3Backend:
         self.is_busy = False
         self.sleep_s = 0.0
         self.call_count = 0
+        self.name = "sam3"
+        self.task = "segment"
 
     def metadata(self):
         return {
+            "name": "sam3",
+            "task": "segment",
             "model_path": "models/sam3.1_multiplex.pt",
             "default_conf": 0.25,
             "half": True,
@@ -67,10 +71,14 @@ class FakeDetectionBackend:
         self.is_busy = False
         self.call_count = 0
         self._names = {0: "person", 1: "car"}
+        self.name = "yolo26n"
+        self.task = "detect"
 
     def metadata(self):
         return {
-            "model_path": "models/yolo11n.pt",
+            "name": "yolo26n",
+            "task": "detect",
+            "model_path": "models/yolo26n.pt",
             "default_conf": 0.25,
             "half": True,
             "device": "auto",
@@ -132,9 +140,13 @@ class FakeYOLOSegBackend:
         self.is_busy = False
         self.call_count = 0
         self._names = {0: "person", 1: "car"}
+        self.name = "yolo_seg"
+        self.task = "segment"
 
     def metadata(self):
         return {
+            "name": "yolo_seg",
+            "task": "segment",
             "model_path": "models/yolo11n-seg.pt",
             "default_conf": 0.25,
             "half": True,
@@ -172,6 +184,8 @@ class BaseAPITestCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         os.environ["API_KEY"] = "test-key"
+        os.environ["DETECT_DEFAULT_MODEL"] = "yolo26n"
+        os.environ["SEGMENT_DEFAULT_MODEL"] = "sam3"
         os.environ["OUTPUT_DIR"] = os.path.join(self._tmp.name, "outputs")
         os.environ["SAM3_SKIP_MODEL_LOAD"] = "1"
         os.environ["RATE_LIMIT_PER_MINUTE"] = "60"

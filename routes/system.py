@@ -8,6 +8,48 @@ from services.app_services import AppServices
 from services.infra.metrics_exporter import render_metrics_text
 
 
+def _model_catalog_response(services: AppServices) -> dict:
+    runtime_by_name: dict[str, dict] = {}
+
+    detection_meta = services.detection_service.metadata()
+    runtime_by_name[detection_meta["name"]] = detection_meta
+
+    segmentation_meta = services.segmentation_service.metadata()
+    for backend_meta in segmentation_meta["backends"].values():
+        runtime_by_name[backend_meta["name"]] = backend_meta
+
+    models = []
+    for name, model_cfg in services.config.models.items():
+        runtime = runtime_by_name.get(name)
+        models.append(
+            {
+                "name": model_cfg.name,
+                "task": model_cfg.task,
+                "model_path": model_cfg.model_path,
+                "default_conf": model_cfg.default_conf,
+                "half": model_cfg.half,
+                "device": model_cfg.device,
+                "ready": bool(runtime["ready"]) if runtime else False,
+                "busy": bool(runtime["busy"]) if runtime else False,
+                "last_error": runtime["last_error"] if runtime else None,
+                "active": runtime is not None,
+                "default": (
+                    name == services.config.detect_default_model
+                    if model_cfg.task == "detect"
+                    else name == services.config.segment_default_model
+                ),
+            }
+        )
+
+    return {
+        "defaults": {
+            "detect": services.config.detect_default_model,
+            "segment": services.config.segment_default_model,
+        },
+        "models": models,
+    }
+
+
 def register_system_routes(app: Flask, services: AppServices) -> None:
     config = services.config
     blueprint = Blueprint("system", __name__)
@@ -63,10 +105,7 @@ def register_system_routes(app: Flask, services: AppServices) -> None:
     @blueprint.get("/v1/models")
     @require_api_key(config.api_key)
     def model_metadata():
-        return jsonify({
-            "segmentation": services.segmentation_service.metadata(),
-            "detection": services.detection_service.metadata(),
-        }), 200
+        return jsonify(_model_catalog_response(services)), 200
 
     @blueprint.get(f"{config.output_url_prefix}/<path:filename>")
     def serve_output_file(filename: str):

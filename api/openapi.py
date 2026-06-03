@@ -79,7 +79,10 @@ def openapi_spec(config: Config) -> dict:
                                             "type": "string",
                                             "description": "JSON list of class ids or class names, e.g. [0,\"person\"]",
                                         },
-                                        "conf": {"type": "number", "default": config.yolo_default_conf},
+                                        "conf": {
+                                            "type": "number",
+                                            "default": config.models[config.detect_default_model].default_conf,
+                                        },
                                         "overlay": {
                                             "type": "string",
                                             "enum": ["none", "bbox"],
@@ -139,7 +142,10 @@ def openapi_spec(config: Config) -> dict:
                                             "type": "string",
                                             "description": "JSON list or csv. Options: mask_png,rle,polygon,alpha_matte",
                                         },
-                                        "conf": {"type": "number", "default": config.model_default_conf},
+                                        "conf": {
+                                            "type": "number",
+                                            "default": config.models[config.segment_default_model].default_conf,
+                                        },
                                         "overlay": {
                                             "type": "string",
                                             "enum": ["none", "bbox", "mask", "both"],

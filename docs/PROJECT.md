@@ -35,15 +35,12 @@ Service layers (`services/`):
   - `webhook_retry_service.py` / `webhook_utils.py`: background webhook retry worker and delivery.
 
 ## Runtime Configuration
+Per-model settings live in `models.yaml` (see Model Catalog below), not in env.
 Important environment variables:
 - `API_KEY`
-- `SEGMENT_DEFAULT_MODEL`
-- `SAM3_MODEL_PATH`
-- `SAM3_DEFAULT_CONF`
-- `YOLO_MODEL_PATH`
-- `YOLO_DEFAULT_CONF`
-- `YOLO_SEG_MODEL_PATH`
-- `YOLO_SEG_DEFAULT_CONF`
+- `DETECT_DEFAULT_MODEL` (selects a default detection model by name from `models.yaml`)
+- `SEGMENT_DEFAULT_MODEL` (selects a default segmentation model by name from `models.yaml`)
+- `MODELS_CONFIG_PATH` (override the model catalog path; default `models.yaml`)
 - `MAX_UPLOAD_MB`
 - `MAX_IMAGE_PIXELS`
 - `ENABLE_AUTO_QUEUE`
@@ -54,10 +51,17 @@ Important environment variables:
 - `WEBHOOK_MAX_RETRIES`
 - `WEBHOOK_RETRY_BASE_SECONDS`
 
-## Model Defaults
-- SAM3 segmentation: `models/sam3.1_multiplex.pt`
-- YOLO detection: `models/yolo11n.pt`
-- YOLO segmentation: `models/yolo11n-seg.pt`
+## Model Catalog
+Defined in `models.yaml` (the single source of truth, loaded by `config.py` into
+`Config.models` as `ModelConfig` entries). Each entry's `name`/`task` also drive
+the metrics `model` label and `/v1/models` metadata. Defaults:
+- `sam3` (segment): `models/sam3.1_multiplex.pt`
+- `yolo26n` (detect): `models/yolo26n.pt`
+- `yolo11n` (detect): `models/yolo11n.pt`
+- `yolo_seg` (segment): `models/yolo26n-seg.pt`
+
+Add a model by appending an entry (task + model_path, optional default_conf/half/device)
+and wiring a backend; no code/env changes are needed for its settings.
 
 ## Key Flows
 - `/v1/segment`: synchronous segmentation; can auto-queue when selected segment backend is busy.

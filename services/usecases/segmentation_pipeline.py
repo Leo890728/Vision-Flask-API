@@ -80,7 +80,7 @@ class SegmentationPipeline:
             classes=classes,
         )
         infer_ms = (time.perf_counter() - infer_start) * 1000
-        self.metrics_service.observe_inference_latency(infer_ms)
+        self.metrics_service.observe_inference_latency(infer_ms, task="segment", model=segment_model)
 
         post_start = time.perf_counter()
         detections, overlay_url = self._render_segmentation_response(

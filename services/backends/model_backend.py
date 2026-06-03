@@ -4,7 +4,7 @@ import threading
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from config import Config
+from config import Config, ModelConfig
 from errors import APIError
 
 
@@ -14,14 +14,26 @@ class BaseModelBackend:
     Subclasses provide ``load``/``warmup`` and the concrete inference call,
     wrapping the model invocation in :meth:`track_inference` so that the model
     is accessed under a lock and ``is_busy`` reflects an in-flight request.
+
+    Each backend carries its :class:`ModelConfig`, so its settings and its
+    identity (``name``/``task``, used as metrics labels) come from one place.
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, model_cfg: ModelConfig):
         self.config = config
+        self.model_cfg = model_cfg
         self._lock = threading.Lock()
         self._active_inference = 0
         self._ready = False
         self._last_error: str | None = None
+
+    @property
+    def name(self) -> str:
+        return self.model_cfg.name
+
+    @property
+    def task(self) -> str:
+        return self.model_cfg.task
 
     @property
     def last_error(self) -> str | None:

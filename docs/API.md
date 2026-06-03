@@ -25,11 +25,14 @@ Liveness check.
 Readiness check for the default segmentation backend.
 
 ### `GET /v1/models`
-Returns runtime metadata:
-- `segmentation.default_model`
-- `segmentation.backends.sam3`
-- `segmentation.backends.yolo_seg`
-- `detection`
+Returns a uniform model catalog with runtime status:
+- `defaults.detect` and `defaults.segment`
+- `models[]`, where every entry has the same fields:
+  `name`, `task`, `model_path`, `default_conf`, `half`, `device`,
+  `ready`, `busy`, `last_error`, `active`, `default`
+
+`active=false` means the model is defined in `models.yaml` but no runtime backend
+is currently wired for it.
 
 ### `GET /metrics`
 Prometheus text metrics. Requires API key.
@@ -42,7 +45,7 @@ Single-image YOLO object detection.
 `multipart/form-data` fields:
 - `image` required
 - `classes` optional JSON list of class ids or names, e.g. `[0, "person"]`
-- `conf` optional, defaults to `YOLO_DEFAULT_CONF`
+- `conf` optional, defaults to the `DETECT_DEFAULT_MODEL` entry in `models.yaml`
 - `overlay` optional, `none` or `bbox`
 
 Each detection includes:
@@ -66,7 +69,7 @@ Single-image segmentation.
 Common fields:
 - `image` required
 - `segment_model` optional, `sam3` or `yolo_seg`, default `SEGMENT_DEFAULT_MODEL`
-- `conf` optional
+- `conf` optional, defaults to the selected `segment_model` entry in `models.yaml`
 - `overlay` optional, `none|bbox|mask|both`
 - `output_formats` optional JSON list or CSV: `mask_png`, `rle`, `polygon`, `alpha_matte`
 

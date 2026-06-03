@@ -11,14 +11,14 @@ from services.backends.model_backend import BaseModelBackend, resolve_yolo_class
 
 class DetectionService(BaseModelBackend):
     def __init__(self, config: Config):
-        super().__init__(config)
+        super().__init__(config, config.models[config.detect_default_model])
         self._model: YOLO | None = None
 
     def _models_loaded(self) -> bool:
         return self._model is not None
 
     def load(self) -> None:
-        self._model = YOLO(self.config.yolo_model_path)
+        self._model = YOLO(self.model_cfg.model_path)
         self._ready = True
         self._last_error = None
 
@@ -29,9 +29,9 @@ class DetectionService(BaseModelBackend):
             with self.track_inference():
                 self._model.predict(
                     source=sample_image_path,
-                    conf=self.config.yolo_default_conf,
-                    device=None if self.config.yolo_device == "auto" else self.config.yolo_device,
-                    half=self.config.yolo_half,
+                    conf=self.model_cfg.default_conf,
+                    device=None if self.model_cfg.device == "auto" else self.model_cfg.device,
+                    half=self.model_cfg.half,
                     verbose=False,
                 )
         except Exception as exc:
@@ -39,10 +39,12 @@ class DetectionService(BaseModelBackend):
 
     def metadata(self) -> dict[str, Any]:
         return {
-            "model_path": self.config.yolo_model_path,
-            "default_conf": self.config.yolo_default_conf,
-            "half": self.config.yolo_half,
-            "device": self.config.yolo_device,
+            "name": self.model_cfg.name,
+            "task": self.model_cfg.task,
+            "model_path": self.model_cfg.model_path,
+            "default_conf": self.model_cfg.default_conf,
+            "half": self.model_cfg.half,
+            "device": self.model_cfg.device,
             "ready": self.is_ready,
             "last_error": self._last_error,
             "busy": self.is_busy,
@@ -65,13 +67,13 @@ class DetectionService(BaseModelBackend):
         if not self.is_ready or self._model is None:
             raise APIError("MODEL_NOT_READY", "YOLO detection model is not ready.", 503)
         if conf is None:
-            conf = self.config.yolo_default_conf
+            conf = self.model_cfg.default_conf
 
         predict_kwargs: dict[str, Any] = {
             "source": image_path,
             "conf": conf,
-            "device": None if self.config.yolo_device == "auto" else self.config.yolo_device,
-            "half": self.config.yolo_half,
+            "device": None if self.model_cfg.device == "auto" else self.model_cfg.device,
+            "half": self.model_cfg.half,
             "verbose": False,
         }
         if class_ids:

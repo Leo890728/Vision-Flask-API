@@ -101,7 +101,7 @@ class DetectParams(BaseModel):
     def from_form(cls, form_data: Mapping[str, Any], config: Config) -> "DetectParams":
         return cls(
             classes=_parse_classes(form_data),
-            conf=_parse_conf(form_data.get("conf"), config, config.yolo_default_conf),
+            conf=_parse_conf(form_data.get("conf"), config, config.models[config.detect_default_model].default_conf),
             overlay=_parse_detect_overlay(form_data.get("overlay")),
         )
 
@@ -121,9 +121,7 @@ def _parse_segment_model(raw: Any, config: Config) -> SegmentModel:
 
 
 def _default_segment_conf(config: Config, segment_model: SegmentModel) -> float:
-    if segment_model == "yolo_seg":
-        return config.yolo_seg_default_conf
-    return config.model_default_conf
+    return config.models[segment_model].default_conf
 
 
 def _parse_json_field(raw: Any, field_name: str, error_code: str) -> Any:

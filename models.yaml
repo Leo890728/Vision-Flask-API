@@ -1,0 +1,37 @@
+# Model catalog — the single source of truth for each model's settings.
+#
+# Loaded by config.py at startup. Each entry maps a model name (used as the
+# routing key and the metrics `model` label) to its settings. To override per
+# environment, point MODELS_CONFIG_PATH at a different YAML file.
+#
+# Required per model: task (detect|segment), model_path.
+# Optional:          default_conf (0.25), half (true), device (auto).
+
+models:
+  sam3:
+    task: segment
+    model_path: models/sam3.1_multiplex.pt
+    default_conf: 0.25
+    half: true
+    device: auto
+
+  yolo26n:
+    task: detect
+    model_path: models/yolo26n.pt
+    default_conf: 0.25
+    half: true
+    device: auto
+  
+  yolo11n:
+    task: detect
+    model_path: models/yolo11n.pt
+    default_conf: 0.25
+    half: true
+    device: auto
+
+  yolo_seg:
+    task: segment
+    model_path: models/yolo26n-seg.pt
+    default_conf: 0.25
+    half: true
+    device: auto
