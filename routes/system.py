@@ -56,14 +56,17 @@ def register_system_routes(app: Flask, services: AppServices) -> None:
 
     @blueprint.get("/readyz")
     def readyz():
-        if services.sam3_service.is_ready:
+        if services.segmentation_service.is_ready:
             return jsonify({"status": "ready"}), 200
-        return jsonify({"status": "not_ready", "reason": services.sam3_service.last_error}), 503
+        return jsonify({"status": "not_ready", "reason": services.segmentation_service.last_error}), 503
 
     @blueprint.get("/v1/models")
     @require_api_key(config.api_key)
     def model_metadata():
-        return jsonify({"sam3": services.sam3_service.metadata(), "yolo": services.yolo_service.metadata()}), 200
+        return jsonify({
+            "segmentation": services.segmentation_service.metadata(),
+            "detection": services.detection_service.metadata(),
+        }), 200
 
     @blueprint.get(f"{config.output_url_prefix}/<path:filename>")
     def serve_output_file(filename: str):

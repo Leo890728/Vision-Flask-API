@@ -7,9 +7,9 @@ def openapi_spec(config: Config) -> dict:
     return {
         "openapi": "3.0.3",
         "info": {
-            "title": "SAM3 Flask API",
+            "title": "Vision Flask API",
             "version": "1.0.0",
-            "description": "SAM3 segmentation + YOLO detection API.",
+            "description": "Segmentation and detection API with SAM3, YOLO segmentation, and YOLO detection backends.",
         },
         "servers": [{"url": "/"}],
         "components": {
@@ -121,7 +121,17 @@ def openapi_spec(config: Config) -> dict:
                                     "required": ["image"],
                                     "properties": {
                                         "image": {"type": "string", "format": "binary"},
+                                        "segment_model": {
+                                            "type": "string",
+                                            "enum": ["sam3", "yolo_seg"],
+                                            "default": config.segment_default_model,
+                                            "description": "Segmentation backend. sam3 uses prompts/points/boxes; yolo_seg uses YOLO segmentation with optional classes.",
+                                        },
                                         "prompt": {"type": "string"},
+                                        "classes": {
+                                            "type": "string",
+                                            "description": "YOLO segmentation only. JSON list of class ids or class names, e.g. [0,\"person\"]. If omitted, all classes are segmented.",
+                                        },
                                         "points": {"type": "string", "description": "JSON: [[x,y], ...]"},
                                         "point_labels": {"type": "string", "description": "JSON: [1,0,...]"},
                                         "boxes": {"type": "string", "description": "JSON: [x1,y1,x2,y2] or [[...],...]"},
@@ -223,17 +233,22 @@ def openapi_spec(config: Config) -> dict:
                                             "enum": ["segment", "detect"],
                                             "default": "segment",
                                         },
+                                        "segment_model": {
+                                            "type": "string",
+                                            "enum": ["sam3", "yolo_seg"],
+                                            "default": config.segment_default_model,
+                                        },
                                         "prompt": {"type": "string"},
+                                        "classes": {
+                                            "type": "string",
+                                            "description": "Detect or YOLO segmentation. JSON list of class ids or names.",
+                                        },
                                         "points": {"type": "string", "description": "JSON: [[x,y], ...]"},
                                         "point_labels": {"type": "string", "description": "JSON: [1,0,...]"},
                                         "boxes": {"type": "string", "description": "JSON: [x1,y1,x2,y2] or [[...],...]"},
                                         "output_formats": {
                                             "type": "string",
                                             "description": "Segment only. JSON list or csv. mask_png,rle,polygon,alpha_matte",
-                                        },
-                                        "classes": {
-                                            "type": "string",
-                                            "description": "Detect only. JSON list of class ids or names.",
                                         },
                                         "conf": {"type": "number"},
                                         "overlay": {"type": "string"},

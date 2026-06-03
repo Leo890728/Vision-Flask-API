@@ -11,12 +11,10 @@ from flask import Blueprint, Flask, g, jsonify, request, send_file
 from api.parsers import (
     parse_classes,
     parse_detect_overlay,
-    parse_output_formats,
-    parse_overlay,
-    parse_prompt_inputs,
     parse_task,
     validate_conf,
 )
+from api.request_models import SegmentParams
 from errors import APIError
 from middlewares.auth import require_api_key
 from middlewares.rate_limit import apply_rate_limit
@@ -38,20 +36,19 @@ def register_job_routes(app: Flask, services: AppServices) -> None:
         webhook_url = (request.form.get("webhook_url") or "").strip() or None
         webhook_secret = (request.form.get("webhook_secret") or "").strip() or None
         if task == "segment":
-            prompt_inputs = parse_prompt_inputs(request.form, require_input=True)
-            output_formats = parse_output_formats(request.form)
-            overlay = parse_overlay(request.form.get("overlay"))
-            conf = validate_conf(request.form.get("conf"), config)
-            g.prompt = prompt_inputs["prompt"]
+            params = SegmentParams.from_form(request.form, config, require_input=True)
+            g.prompt = params.prompt
             source_path, _w, _h, decode_ms = services.pipeline.save_and_validate_upload(upload, g.request_id)
             job_payload = {
                 "task": "segment",
+                "segment_model": params.segment_model,
                 "request_id": g.request_id,
                 "source_path": str(source_path),
-                "prompt_inputs": prompt_inputs,
-                "conf": conf,
-                "overlay": overlay,
-                "output_formats": sorted(output_formats),
+                "prompt_inputs": params.to_prompt_inputs(),
+                "classes": params.classes,
+                "conf": params.conf,
+                "overlay": params.overlay,
+                "output_formats": sorted(params.output_formats),
                 "decode_ms": decode_ms,
                 "webhook_secret": webhook_secret,
             }

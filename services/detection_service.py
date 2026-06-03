@@ -1,22 +1,21 @@
 from __future__ import annotations
 
-import threading
 from typing import Any
 
 from ultralytics import YOLO
 
 from config import Config
 from errors import APIError
+from services.model_backend import BaseModelBackend, resolve_yolo_class_ids
 
 
-class YOLOService:
+class DetectionService(BaseModelBackend):
     def __init__(self, config: Config):
-        self.config = config
+        super().__init__(config)
         self._model: YOLO | None = None
-        self._lock = threading.Lock()
-        self._active_inference = 0
-        self._ready = False
-        self._last_error: str | None = None
+
+    def _models_loaded(self) -> bool:
+        return self._model is not None
 
     def load(self) -> None:
         self._model = YOLO(self.config.yolo_model_path)
@@ -27,7 +26,7 @@ class YOLOService:
         if self._model is None or sample_image_path is None:
             return
         try:
-            with self._lock:
+            with self.track_inference():
                 self._model.predict(
                     source=sample_image_path,
                     conf=self.config.yolo_default_conf,
@@ -37,18 +36,6 @@ class YOLOService:
                 )
         except Exception as exc:
             self._last_error = str(exc)
-
-    @property
-    def is_ready(self) -> bool:
-        return self._ready and self._model is not None
-
-    @property
-    def last_error(self) -> str | None:
-        return self._last_error
-
-    @property
-    def is_busy(self) -> bool:
-        return self._active_inference > 0
 
     def metadata(self) -> dict[str, Any]:
         return {
@@ -65,40 +52,8 @@ class YOLOService:
         if not classes:
             return None
         if not self.is_ready or self._model is None:
-            raise APIError("MODEL_NOT_READY", "YOLO model is not ready.", 503)
-
-        names_obj = self._model.names
-        names_map: dict[int, str] = {}
-        if isinstance(names_obj, dict):
-            names_map = {int(k): str(v) for k, v in names_obj.items()}
-        elif isinstance(names_obj, list):
-            names_map = {idx: str(v) for idx, v in enumerate(names_obj)}
-
-        reverse = {name.lower(): idx for idx, name in names_map.items()}
-        out: list[int] = []
-        for item in classes:
-            if isinstance(item, int):
-                out.append(item)
-                continue
-            try:
-                out.append(int(item))
-                continue
-            except Exception:
-                pass
-            key = str(item).strip().lower()
-            if key not in reverse:
-                raise APIError("INVALID_CLASSES", f"Unknown class name: {item}", 400)
-            out.append(reverse[key])
-
-        # keep order while removing duplicates
-        seen: set[int] = set()
-        deduped: list[int] = []
-        for cid in out:
-            if cid in seen:
-                continue
-            seen.add(cid)
-            deduped.append(cid)
-        return deduped
+            raise APIError("MODEL_NOT_READY", "YOLO detection model is not ready.", 503)
+        return resolve_yolo_class_ids(self._model, classes)
 
     def detect(
         self,
@@ -108,7 +63,7 @@ class YOLOService:
         overlay: str = "none",
     ) -> dict[str, Any]:
         if not self.is_ready or self._model is None:
-            raise APIError("MODEL_NOT_READY", "YOLO model is not ready.", 503)
+            raise APIError("MODEL_NOT_READY", "YOLO detection model is not ready.", 503)
         if conf is None:
             conf = self.config.yolo_default_conf
 
@@ -123,15 +78,11 @@ class YOLOService:
             predict_kwargs["classes"] = class_ids
 
         try:
-            with self._lock:
-                self._active_inference += 1
+            with self.track_inference():
                 results = self._model.predict(**predict_kwargs)
         except Exception as exc:
             self._last_error = str(exc)
-            raise APIError("INFERENCE_FAILED", "YOLO inference failed.", 500, {"reason": str(exc)}) from exc
-        finally:
-            with self._lock:
-                self._active_inference = max(0, self._active_inference - 1)
+            raise APIError("INFERENCE_FAILED", "YOLO detection inference failed.", 500, {"reason": str(exc)}) from exc
 
         if not results:
             return {"width": 0, "height": 0, "detections": [], "overlay_bgr": None}
@@ -151,7 +102,7 @@ class YOLOService:
                     {
                         "id": idx,
                         "score": float(confs[idx]) if idx < len(confs) else 0.0,
-                        "bbox": [float(v) for v in bbox],
+                        "bbox": [float(value) for value in bbox],
                         "class_id": class_id,
                         "class_name": str(names_map.get(class_id, str(class_id))),
                     }

@@ -1,4 +1,4 @@
-﻿# API Documentation
+# API Documentation
 
 ## Base URL
 - `http://127.0.0.1:5000`
@@ -22,30 +22,28 @@
 Liveness check.
 
 ### `GET /readyz`
-Readiness check for the segmentation model service.
+Readiness check for the default segmentation backend.
 
 ### `GET /v1/models`
-Returns runtime metadata for both models:
-- `sam3`
-- `yolo`
+Returns runtime metadata:
+- `segmentation.default_model`
+- `segmentation.backends.sam3`
+- `segmentation.backends.yolo_seg`
+- `detection`
 
 ### `GET /metrics`
-Prometheus text metrics (requires API key).
+Prometheus text metrics. Requires API key.
 
-## Detection (YOLO, bbox only)
+## Detection
 
 ### `POST /v1/detect`
-Single-image object detection.
+Single-image YOLO object detection.
 
 `multipart/form-data` fields:
-- `image` (required)
-- `classes` (optional, JSON list of class ids or class names, e.g. `[0, "person"]`)
-- `conf` (optional)
-- `overlay` (optional, `none` or `bbox`)
-
-Response:
-- `200` success
-- `202` auto-queued (when busy and auto queue enabled)
+- `image` required
+- `classes` optional JSON list of class ids or names, e.g. `[0, "person"]`
+- `conf` optional, defaults to `YOLO_DEFAULT_CONF`
+- `overlay` optional, `none` or `bbox`
 
 Each detection includes:
 - `bbox`
@@ -56,47 +54,59 @@ Each detection includes:
 ### `POST /v1/detect/batch`
 Batch detection for multiple images.
 
-`multipart/form-data` fields:
-- `images` (required, multiple files)
+Fields:
+- `images` required, multiple files
 - same optional fields as `/v1/detect`
 
-## Segmentation (SAM3)
+## Segmentation
 
 ### `POST /v1/segment`
-Single-image segmentation by prompt, points, or boxes.
+Single-image segmentation.
 
-`multipart/form-data` fields:
-- `image` (required)
-- `prompt` (optional, but required if no points/boxes)
-- `points` (optional, JSON: `[[x,y], ...]`)
-- `point_labels` (optional, JSON: `[1,0,...]`)
-- `boxes` (optional, JSON: `[x1,y1,x2,y2]` or `[[...], ...]`)
-- `conf` (optional)
-- `overlay` (optional, `none|bbox|mask|both`)
-- `output_formats` (optional, JSON list or CSV)
-  - `mask_png`, `rle`, `polygon`, `alpha_matte`
+Common fields:
+- `image` required
+- `segment_model` optional, `sam3` or `yolo_seg`, default `SEGMENT_DEFAULT_MODEL`
+- `conf` optional
+- `overlay` optional, `none|bbox|mask|both`
+- `output_formats` optional JSON list or CSV: `mask_png`, `rle`, `polygon`, `alpha_matte`
+
+For `segment_model=sam3`:
+- `prompt` optional, required if no points/boxes
+- `points` optional JSON `[[x,y], ...]`
+- `point_labels` optional JSON `[1,0,...]`
+- `boxes` optional JSON `[x1,y1,x2,y2]` or `[[...], ...]`
+
+For `segment_model=yolo_seg`:
+- `classes` optional JSON list of class ids or names
+- `prompt` can be used as a single class-name filter when `classes` is omitted
+- `points` and `boxes` are not supported
 
 ### `POST /v1/segment/batch`
-Batch segmentation for multiple images.
+Batch segmentation for multiple images. Uses the same segmentation fields as `/v1/segment`.
 
-## Async Jobs (Unified)
+## Async Jobs
 
 ### `POST /v1/jobs`
-Submit async work for both tasks.
+Submit async work for either task.
 
-`multipart/form-data` fields:
-- `image` (required)
-- `task` (optional, `segment` or `detect`, default `segment`)
-- segment-related fields: same as `/v1/segment`
-- detect-related fields: `classes`, `conf`, `overlay`
-- `webhook_url` (optional)
-- `webhook_secret` (optional)
+Fields:
+- `image` required
+- `task` optional, `segment` or `detect`, default `segment`
+- segment fields: same as `/v1/segment`
+- detect fields: same as `/v1/detect`
+- `webhook_url` optional
+- `webhook_secret` optional
 
 ### `GET /v1/jobs/{job_id}`
 Get job status and result.
 
 Statuses:
-- `queued`, `running`, `canceling`, `done`, `failed`, `canceled`
+- `queued`
+- `running`
+- `canceling`
+- `done`
+- `failed`
+- `canceled`
 
 ### `DELETE /v1/jobs/{job_id}`
 Cancel a queued/running job.
@@ -108,7 +118,7 @@ Retry failed or canceled jobs.
 Export generated files and `result.json` as zip.
 
 ## Webhook
-When a job is completed/failed/canceled, server posts to `webhook_url` if provided.
+When a job is completed, failed, or canceled, the server posts to `webhook_url` if provided.
 
-Signature header (if `webhook_secret` is provided):
+Signature header, when `webhook_secret` is provided:
 - `X-Webhook-Signature: <base64(hmac_sha256(secret, body))>`

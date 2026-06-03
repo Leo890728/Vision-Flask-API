@@ -5,53 +5,30 @@ import json
 import time
 from typing import Any
 
-from PIL import Image, UnidentifiedImageError
-
-from api.parsers import validate_upload_filename
 from config import Config
 from errors import APIError
 from services.metrics_service import MetricsService
 from services.storage_service import StorageService
+from services.upload_service import UploadService
 
 
 class DetectionPipeline:
     def __init__(
         self,
         config: Config,
-        yolo_service: Any,
+        detection_service: Any,
         storage_service: StorageService,
         metrics_service: MetricsService,
-        upload_validator: Any | None = None,
+        upload_service: UploadService,
     ):
         self.config = config
-        self.yolo_service = yolo_service
+        self.detection_service = detection_service
         self.storage_service = storage_service
         self.metrics_service = metrics_service
-        self.upload_validator = upload_validator
+        self.upload_service = upload_service
 
     def save_and_validate_upload(self, upload, request_id: str):
-        if self.upload_validator is not None:
-            return self.upload_validator(upload, request_id)
-
-        validate_upload_filename(upload.filename or "", self.config)
-        decode_start = time.perf_counter()
-        source_path = self.storage_service.save_uploaded_image(request_id, upload)
-        try:
-            with Image.open(source_path) as image:
-                width, height = image.size
-        except UnidentifiedImageError as exc:
-            raise APIError("INVALID_IMAGE", "Uploaded file is not a valid image.", 400) from exc
-
-        if width * height > self.config.max_image_pixels:
-            raise APIError(
-                "IMAGE_TOO_LARGE",
-                "Image pixel count exceeds limit.",
-                400,
-                {"max_pixels": self.config.max_image_pixels, "actual_pixels": width * height},
-            )
-
-        decode_ms = (time.perf_counter() - decode_start) * 1000
-        return source_path, width, height, decode_ms
+        return self.upload_service.save_and_validate_upload(upload, request_id)
 
     def build_cache_key(
         self,
@@ -81,12 +58,12 @@ class DetectionPipeline:
     ) -> dict[str, Any]:
         infer_start = time.perf_counter()
         try:
-            class_ids = self.yolo_service.resolve_class_ids(classes)
+            class_ids = self.detection_service.resolve_class_ids(classes)
         except APIError:
             raise
         except Exception as exc:
             raise APIError("INVALID_CLASSES", str(exc), 400) from exc
-        detect_result = self.yolo_service.detect(
+        detect_result = self.detection_service.detect(
             image_path=source_path,
             conf=conf,
             class_ids=class_ids,

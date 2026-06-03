@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 import hashlib
-import inspect
 import json
 import time
 from typing import Any
 
-from PIL import Image, UnidentifiedImageError
-
-from api.parsers import validate_upload_filename
 from config import Config
-from errors import APIError
 from services.metrics_service import MetricsService
+from services.segmentation_service import SegmentationService
 from services.storage_service import StorageService
+from services.upload_service import UploadService
 
 try:
     import cv2
@@ -24,42 +21,19 @@ class SegmentationPipeline:
     def __init__(
         self,
         config: Config,
-        sam3_service: Any,
+        segmentation_service: SegmentationService,
         storage_service: StorageService,
         metrics_service: MetricsService,
+        upload_service: UploadService,
     ):
         self.config = config
-        self.sam3_service = sam3_service
+        self.segmentation_service = segmentation_service
         self.storage_service = storage_service
         self.metrics_service = metrics_service
-        self._supports_overlay_arg = self._detect_overlay_arg()
-
-    def _detect_overlay_arg(self) -> bool:
-        try:
-            return "overlay" in inspect.signature(self.sam3_service.segment).parameters
-        except Exception:
-            return False
+        self.upload_service = upload_service
 
     def save_and_validate_upload(self, upload, request_id: str):
-        validate_upload_filename(upload.filename or "", self.config)
-        decode_start = time.perf_counter()
-        source_path = self.storage_service.save_uploaded_image(request_id, upload)
-        try:
-            with Image.open(source_path) as image:
-                width, height = image.size
-        except UnidentifiedImageError as exc:
-            raise APIError("INVALID_IMAGE", "Uploaded file is not a valid image.", 400) from exc
-
-        if width * height > self.config.max_image_pixels:
-            raise APIError(
-                "IMAGE_TOO_LARGE",
-                "Image pixel count exceeds limit.",
-                400,
-                {"max_pixels": self.config.max_image_pixels, "actual_pixels": width * height},
-            )
-
-        decode_ms = (time.perf_counter() - decode_start) * 1000
-        return source_path, width, height, decode_ms
+        return self.upload_service.save_and_validate_upload(upload, request_id)
 
     def build_cache_key(
         self,
@@ -68,11 +42,15 @@ class SegmentationPipeline:
         conf: float,
         overlay: str,
         output_formats: set[str],
+        segment_model: str = "sam3",
+        classes: list[int | str] | None = None,
     ) -> str:
         key_obj = {
             "task": "segment",
+            "segment_model": segment_model,
             "image_sha256": image_sha256,
             "prompt_inputs": prompt_inputs,
+            "classes": classes or [],
             "conf": conf,
             "overlay": overlay,
             "output_formats": sorted(output_formats),
@@ -89,13 +67,17 @@ class SegmentationPipeline:
         overlay: str,
         output_formats: set[str],
         decode_ms: float = 0.0,
+        segment_model: str = "sam3",
+        classes: list[int | str] | None = None,
     ) -> dict[str, Any]:
         infer_start = time.perf_counter()
-        seg_result = self._segment(
-            source_path=source_path,
+        seg_result = self.segmentation_service.segment(
+            image_path=source_path,
             prompt_inputs=prompt_inputs,
             conf=conf,
             overlay=overlay,
+            segment_model=segment_model,
+            classes=classes,
         )
         infer_ms = (time.perf_counter() - infer_start) * 1000
         self.metrics_service.observe_inference_latency(infer_ms)
@@ -112,9 +94,11 @@ class SegmentationPipeline:
         total_ms = decode_ms + infer_ms + post_ms
         return {
             "request_id": request_id,
+            "segment_model": segment_model,
             "prompt": prompt_inputs["prompt"],
             "cached": False,
             "output_formats": sorted(output_formats),
+            "classes": classes or [],
             "prompt_inputs": {
                 "points": prompt_inputs["points"],
                 "boxes": prompt_inputs["boxes"],
@@ -135,6 +119,7 @@ class SegmentationPipeline:
 
     def job_handler(self, payload: dict[str, Any]) -> dict[str, Any]:
         overlay = payload.get("overlay", "none")
+        segment_model = payload.get("segment_model", "sam3")
         return self.segment_from_saved(
             source_path=payload["source_path"],
             request_id=payload["request_id"],
@@ -143,19 +128,9 @@ class SegmentationPipeline:
             overlay=overlay,
             output_formats=set(payload.get("output_formats", ["mask_png"])),
             decode_ms=payload.get("decode_ms", 0.0),
+            segment_model=segment_model,
+            classes=payload.get("classes"),
         )
-
-    def _segment(self, source_path: str, prompt_inputs: dict[str, Any], conf: float, overlay: str) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {
-            "prompt": prompt_inputs["prompt"],
-            "conf": conf,
-            "points": prompt_inputs["points"],
-            "point_labels": prompt_inputs["point_labels"],
-            "boxes": prompt_inputs["boxes"],
-        }
-        if self._supports_overlay_arg:
-            kwargs["overlay"] = overlay
-        return self.sam3_service.segment(source_path, **kwargs)
 
     def _render_segmentation_response(
         self,

@@ -30,7 +30,7 @@ def _configure_logging() -> None:
 
 
 def _initialize_runtime(app: Flask) -> None:
-    services = app.extensions["sam3_services"]
+    services = app.extensions["vision_services"]
     config: Config = services["config"]
 
     def post_webhook_with_config(url: str, body: dict, secret: str | None = None) -> None:
@@ -67,21 +67,28 @@ def _initialize_runtime(app: Flask) -> None:
     with app.app_context():
         try:
             if not config.skip_model_load:
-                services["sam3_service"].load()
-                services["yolo_service"].load()
+                services["segmentation_service"].load()
+                services["detection_service"].load()
                 sample_image = "image (2).jpg"
                 if Path(sample_image).exists():
-                    services["sam3_service"].warmup(sample_image_path=sample_image)
-                    services["yolo_service"].warmup(sample_image_path=sample_image)
+                    services["segmentation_service"].warmup(sample_image_path=sample_image)
+                    services["detection_service"].warmup(sample_image_path=sample_image)
             services["storage_service"].start_cleanup_thread()
             services["webhook_retry_service"].start(post_webhook_with_config)
             services["job_service"].start(unified_job_handler, completion_hook=job_completion_hook)
-            logging.info("SAM3 + YOLO services initialized.")
+            logging.info("Segmentation + detection services initialized.")
         except Exception as exc:
             logging.exception("Failed to initialize model services: %s", exc)
 
 
-def create_app(sam3_service=None, yolo_service=None, storage_service=None) -> Flask:
+def create_app(
+    sam3_backend=None,
+    detection_backend=None,
+    yolo_seg_backend=None,
+    segmentation_service=None,
+    detection_service=None,
+    storage_service=None,
+) -> Flask:
     config = Config()
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = config.max_upload_bytes
@@ -89,12 +96,15 @@ def create_app(sam3_service=None, yolo_service=None, storage_service=None) -> Fl
     _configure_logging()
     built = build_app_services(
         config=config,
-        sam3_service=sam3_service,
-        yolo_service=yolo_service,
+        sam3_backend=sam3_backend,
+        detection_backend=detection_backend,
+        yolo_seg_backend=yolo_seg_backend,
+        segmentation_service=segmentation_service,
+        detection_service=detection_service,
         storage_service=storage_service,
     )
 
-    app.extensions["sam3_services"] = {
+    app.extensions["vision_services"] = {
         "config": built.config,
         **built.extension_map(),
     }

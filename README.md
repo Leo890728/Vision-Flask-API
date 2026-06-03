@@ -1,6 +1,12 @@
-# SAM3 Flask API
+# Vision Flask API
 
-Flask API for SAM3 semantic segmentation with text prompts.
+Flask API for image segmentation and object detection.
+
+Segmentation supports two backends:
+- `sam3`: prompt, point, or box guided segmentation
+- `yolo_seg`: YOLO segmentation with optional class filtering
+
+Detection uses YOLO bounding-box detection.
 
 ## Documents
 
@@ -9,12 +15,15 @@ Flask API for SAM3 semantic segmentation with text prompts.
 
 ## Quick Start
 
-1. Put model weights at `models/sam3.1_multiplex.pt`.
+1. Put model weights under `models/`.
+   - SAM3 default: `models/sam3.1_multiplex.pt`
+   - YOLO detect default: `models/yolo11n.pt`
+   - YOLO segment default: `models/yolo11n-seg.pt`
 2. Set environment variables (copy from `.env.example`).
 3. Run:
 
 ```powershell
-.\.venv\Scripts\python.exe app.py
+uv run python app.py
 ```
 
 Server default: `http://127.0.0.1:5000`
@@ -38,9 +47,8 @@ Server default: `http://127.0.0.1:5000`
 - `GET /v1/jobs/{job_id}/export` (requires `X-API-Key`)
 
 `POST /v1/segment` supports:
-- text prompt
-- point prompt (`points`, `point_labels`)
-- box prompt (`boxes`)
+- `segment_model=sam3` for text prompt, point prompt (`points`, `point_labels`), or box prompt (`boxes`)
+- `segment_model=yolo_seg` for YOLO segmentation with optional `classes`
 - output formats: `mask_png`, `rle`, `polygon`, `alpha_matte`
 
 `POST /v1/detect` supports (bbox only):
@@ -57,10 +65,22 @@ When the model is busy and `ENABLE_AUTO_QUEUE=true`, `/v1/segment` can return `2
 curl -X POST "http://127.0.0.1:5000/v1/segment" ^
   -H "X-API-Key: change-me" ^
   -F "image=@image (2).jpg" ^
+  -F "segment_model=sam3" ^
   -F "prompt=a person" ^
   -F "output_formats=[\"mask_png\",\"rle\",\"polygon\"]" ^
   -F "conf=0.25" ^
   -F "overlay=both"
+```
+
+YOLO segmentation:
+
+```powershell
+curl -X POST "http://127.0.0.1:5000/v1/segment" ^
+  -H "X-API-Key: change-me" ^
+  -F "image=@image (2).jpg" ^
+  -F "segment_model=yolo_seg" ^
+  -F "classes=[\"person\"]" ^
+  -F "overlay=mask"
 ```
 
 ## Visual Prompt Examples
@@ -91,6 +111,7 @@ curl -X POST "http://127.0.0.1:5000/v1/jobs" ^
   -H "X-API-Key: change-me" ^
   -F "image=@image (2).jpg" ^
   -F "task=segment" ^
+  -F "segment_model=sam3" ^
   -F "prompt=person" ^
   -F "webhook_url=https://example.com/callback" ^
   -F "webhook_secret=change-this"
@@ -131,5 +152,5 @@ curl -L "http://127.0.0.1:5000/v1/jobs/{job_id}/export" ^
 ## Run Tests
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v
+uv run python -m unittest discover -s tests -p "test_*.py" -v
 ```

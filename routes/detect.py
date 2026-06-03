@@ -4,7 +4,6 @@ import time
 
 from flask import Blueprint, Flask, g, jsonify, request
 
-from api.parsers import parse_classes, parse_detect_overlay, validate_conf
 from errors import APIError
 from middlewares.auth import require_api_key
 from middlewares.rate_limit import apply_rate_limit
@@ -19,67 +18,13 @@ def register_detect_routes(app: Flask, services: AppServices) -> None:
     @require_api_key(config.api_key)
     @apply_rate_limit(services.rate_limiter)
     def detect():
-        upload = request.files.get("image")
-        if upload is None:
-            raise APIError("MISSING_IMAGE", "image is required.", 400)
-
-        classes = parse_classes(request.form)
-        overlay = parse_detect_overlay(request.form.get("overlay"))
-        conf = validate_conf(request.form.get("conf"), config, default_conf=config.yolo_default_conf)
-        g.prompt = None
-
-        source_path, _w, _h, decode_ms = services.detection_pipeline.save_and_validate_upload(upload, g.request_id)
-        image_sha256 = services.storage_service.file_sha256(source_path)
-        cache_key = services.detection_pipeline.build_cache_key(image_sha256, conf, overlay, classes)
-
-        cached = services.cache_service.get(cache_key)
-        if cached is not None:
-            payload = dict(cached)
-            payload["request_id"] = g.request_id
-            payload["cached"] = True
-            payload["cache_key"] = cache_key
-            return jsonify(payload), 200
-
-        if config.enable_auto_queue and services.yolo_service.is_busy:
-            qsize = services.job_service.stats()["queue_size"]
-            if qsize >= config.auto_queue_max_size:
-                raise APIError("QUEUE_FULL", "Server is overloaded, queue is full.", 503)
-            job_payload = {
-                "task": "detect",
-                "request_id": g.request_id,
-                "source_path": str(source_path),
-                "conf": conf,
-                "overlay": overlay,
-                "classes": classes,
-                "decode_ms": decode_ms,
-            }
-            job_id = services.job_service.submit(job_payload)
-            services.metrics_service.inc_auto_queued()
-            services.metrics_service.inc_jobs_created()
-            return (
-                jsonify(
-                    {
-                        "request_id": g.request_id,
-                        "status": "queued",
-                        "mode": "auto_queued",
-                        "job_id": job_id,
-                        "status_url": f"/v1/jobs/{job_id}",
-                    }
-                ),
-                202,
-            )
-
-        payload = services.detection_pipeline.detect_from_saved(
-            source_path=str(source_path),
+        result = services.detect_use_case.run_sync_request(
+            upload=request.files.get("image"),
+            form_data=request.form,
             request_id=g.request_id,
-            conf=conf,
-            overlay=overlay,
-            classes=classes,
-            decode_ms=decode_ms,
         )
-        payload["cache_key"] = cache_key
-        services.cache_service.set(cache_key, payload)
-        return jsonify(payload), 200
+        g.prompt = None
+        return jsonify(result.payload), result.status_code
 
     @blueprint.post("/v1/detect/batch")
     @require_api_key(config.api_key)
@@ -91,9 +36,8 @@ def register_detect_routes(app: Flask, services: AppServices) -> None:
         if len(uploads) > config.max_batch_images:
             raise APIError("BATCH_TOO_LARGE", f"Maximum {config.max_batch_images} images per batch.", 400)
 
-        classes = parse_classes(request.form)
-        overlay = parse_detect_overlay(request.form.get("overlay"))
-        conf = validate_conf(request.form.get("conf"), config, default_conf=config.yolo_default_conf)
+        use_case = services.detect_use_case
+        params = use_case.parse_params(request.form)
         g.prompt = None
 
         batch_start = time.perf_counter()
@@ -101,28 +45,7 @@ def register_detect_routes(app: Flask, services: AppServices) -> None:
         for idx, upload in enumerate(uploads):
             item_request_id = f"{g.request_id}_{idx:03d}"
             try:
-                source_path, _w, _h, decode_ms = services.detection_pipeline.save_and_validate_upload(upload, item_request_id)
-                image_sha256 = services.storage_service.file_sha256(source_path)
-                cache_key = services.detection_pipeline.build_cache_key(image_sha256, conf, overlay, classes)
-                cached = services.cache_service.get(cache_key)
-
-                if cached is not None:
-                    result = dict(cached)
-                    result["request_id"] = item_request_id
-                    result["cached"] = True
-                    result["cache_key"] = cache_key
-                else:
-                    result = services.detection_pipeline.detect_from_saved(
-                        source_path=str(source_path),
-                        request_id=item_request_id,
-                        conf=conf,
-                        overlay=overlay,
-                        classes=classes,
-                        decode_ms=decode_ms,
-                    )
-                    result["cache_key"] = cache_key
-                    services.cache_service.set(cache_key, result)
-
+                result = use_case.run_batch_item(upload, params, item_request_id)
                 items.append(
                     {
                         "index": idx,

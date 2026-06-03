@@ -10,6 +10,7 @@ def _to_bool(value: str | None, default: bool) -> bool:
 
 @dataclass
 class Config:
+    segment_default_model: str = field(default_factory=lambda: os.getenv("SEGMENT_DEFAULT_MODEL", "sam3"))
     model_path: str = field(default_factory=lambda: os.getenv("SAM3_MODEL_PATH", "models/sam3.1_multiplex.pt"))
     model_half: bool = field(default_factory=lambda: _to_bool(os.getenv("SAM3_HALF"), True))
     model_default_conf: float = field(default_factory=lambda: float(os.getenv("SAM3_DEFAULT_CONF", "0.25")))
@@ -18,6 +19,10 @@ class Config:
     yolo_half: bool = field(default_factory=lambda: _to_bool(os.getenv("YOLO_HALF"), True))
     yolo_default_conf: float = field(default_factory=lambda: float(os.getenv("YOLO_DEFAULT_CONF", "0.25")))
     yolo_device: str = field(default_factory=lambda: os.getenv("YOLO_DEVICE", "auto"))
+    yolo_seg_model_path: str = field(default_factory=lambda: os.getenv("YOLO_SEG_MODEL_PATH", "models/yolo11n-seg.pt"))
+    yolo_seg_half: bool = field(default_factory=lambda: _to_bool(os.getenv("YOLO_SEG_HALF"), True))
+    yolo_seg_default_conf: float = field(default_factory=lambda: float(os.getenv("YOLO_SEG_DEFAULT_CONF", "0.25")))
+    yolo_seg_device: str = field(default_factory=lambda: os.getenv("YOLO_SEG_DEVICE", "auto"))
     max_upload_mb: int = field(default_factory=lambda: int(os.getenv("MAX_UPLOAD_MB", "20")))
     max_image_pixels: int = field(default_factory=lambda: int(os.getenv("MAX_IMAGE_PIXELS", "30000000")))
     api_key: str = field(default_factory=lambda: os.getenv("API_KEY", "change-me"))
