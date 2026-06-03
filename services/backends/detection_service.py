@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ultralytics import YOLO
 
-from config import Config
+from config import Config, ModelConfig
 from errors import APIError
 from services.backends.model_backend import BaseModelBackend, resolve_yolo_class_ids
 
 
-class DetectionService(BaseModelBackend):
-    def __init__(self, config: Config):
-        super().__init__(config, config.models[config.detect_default_model])
+class _YOLODetectionBackend(BaseModelBackend):
+    def __init__(self, config: Config, model_cfg: ModelConfig):
+        super().__init__(config, model_cfg)
         self._model: YOLO | None = None
 
     def _models_loaded(self) -> bool:
@@ -84,7 +85,12 @@ class DetectionService(BaseModelBackend):
                 results = self._model.predict(**predict_kwargs)
         except Exception as exc:
             self._last_error = str(exc)
-            raise APIError("INFERENCE_FAILED", "YOLO detection inference failed.", 500, {"reason": str(exc)}) from exc
+            raise APIError(
+                "INFERENCE_FAILED",
+                "YOLO detection inference failed.",
+                500,
+                {"reason": str(exc), "detect_model": self.model_cfg.name},
+            ) from exc
 
         if not results:
             return {"width": 0, "height": 0, "detections": [], "overlay_bgr": None}
@@ -120,3 +126,95 @@ class DetectionService(BaseModelBackend):
             "detections": detections,
             "overlay_bgr": overlay_bgr,
         }
+
+
+class DetectionService:
+    def __init__(self, config: Config, backends: dict[str, Any] | None = None):
+        self.config = config
+        if backends is None:
+            backends = {
+                name: _YOLODetectionBackend(config, model_cfg)
+                for name, model_cfg in config.models.items()
+                if model_cfg.task == "detect"
+            }
+        self.backends = dict(backends)
+
+    @property
+    def name(self) -> str:
+        return self.config.detect_default_model
+
+    @property
+    def task(self) -> str:
+        return "detect"
+
+    @property
+    def is_ready(self) -> bool:
+        return bool(self._backend_for(self.config.detect_default_model).is_ready)
+
+    @property
+    def last_error(self) -> str | None:
+        return self._backend_for(self.config.detect_default_model).last_error
+
+    @property
+    def is_busy(self) -> bool:
+        return self.is_busy_for(self.config.detect_default_model)
+
+    def load(self) -> None:
+        for backend in self.backends.values():
+            try:
+                backend.load()
+            except Exception as exc:
+                if hasattr(backend, "_ready"):
+                    backend._ready = False
+                if hasattr(backend, "_last_error"):
+                    backend._last_error = str(exc)
+                logging.warning("Failed to load detection model %s: %s", backend.name, exc)
+
+    def warmup(self, sample_image_path: str | None = None) -> None:
+        for backend in self.backends.values():
+            backend.warmup(sample_image_path=sample_image_path)
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "default_model": self.config.detect_default_model,
+            "backends": {name: backend.metadata() for name, backend in self.backends.items()},
+        }
+
+    def is_busy_for(self, detect_model: str | None = None) -> bool:
+        return bool(self._backend_for(detect_model).is_busy)
+
+    def resolve_class_ids(
+        self,
+        classes: list[int | str] | None,
+        detect_model: str | None = None,
+    ) -> list[int] | None:
+        return self._backend_for(detect_model).resolve_class_ids(classes)
+
+    def detect(
+        self,
+        image_path: str,
+        detect_model: str | None = None,
+        conf: float | None = None,
+        class_ids: list[int] | None = None,
+        overlay: str = "none",
+    ) -> dict[str, Any]:
+        return self._backend_for(detect_model).detect(
+            image_path=image_path,
+            conf=conf,
+            class_ids=class_ids,
+            overlay=overlay,
+        )
+
+    def _backend_for(self, detect_model: str | None):
+        name = str(detect_model or self.config.detect_default_model).strip()
+        backend = self.backends.get(name)
+        if backend is not None:
+            return backend
+
+        detect_models = sorted(name for name, cfg in self.config.models.items() if cfg.task == "detect")
+        raise APIError(
+            "INVALID_DETECT_MODEL",
+            f"detect_model must be one of: {', '.join(detect_models)}.",
+            400,
+            {"available": detect_models},
+        )

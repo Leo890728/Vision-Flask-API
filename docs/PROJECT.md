@@ -62,13 +62,28 @@ the metrics `model` label and `/v1/models` metadata. Defaults:
 
 Add a model by appending an entry (task + model_path, optional default_conf/half/device)
 and wiring a backend; no code/env changes are needed for its settings.
+All `task: detect` entries are loaded by the detection service at startup so
+they can be selected per request with `detect_model`.
 
 ## Key Flows
 - `/v1/segment`: synchronous segmentation; can auto-queue when selected segment backend is busy.
-- `/v1/detect`: synchronous detection; can auto-queue when detection backend is busy.
+- `/v1/detect`: synchronous detection; can auto-queue when the selected detection backend is busy.
 - `/v1/jobs`: explicit async job submission for segment or detect.
 - `/v1/jobs/{job_id}/retry`: retry failed or canceled jobs.
 - `/v1/jobs/{job_id}/export`: export output files and `result.json`.
+- `/playground`: Vue playground for same-image A/B model comparison.
+
+## Playground
+The Vue 3 playground lives under `frontend/` and is built with Vite. Build it
+with:
+
+```powershell
+npm run build
+```
+
+Flask serves the generated bundle from `frontend/dist` at `/playground`. The
+browser stores the API key in `sessionStorage`; it is not injected from server
+environment variables.
 
 ## Tests
 ```powershell

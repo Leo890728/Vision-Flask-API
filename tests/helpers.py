@@ -65,20 +65,26 @@ class FakeSAM3Backend:
 
 
 class FakeDetectionBackend:
-    def __init__(self):
+    def __init__(self, name: str = "yolo26n"):
         self.is_ready = True
         self.last_error = None
         self.is_busy = False
         self.call_count = 0
         self._names = {0: "person", 1: "car"}
-        self.name = "yolo26n"
+        self.name = name
         self.task = "detect"
+
+    def load(self):
+        self.is_ready = True
+
+    def warmup(self, sample_image_path: str | None = None):
+        _ = sample_image_path
 
     def metadata(self):
         return {
-            "name": "yolo26n",
+            "name": self.name,
             "task": "detect",
-            "model_path": "models/yolo26n.pt",
+            "model_path": f"models/{self.name}.pt",
             "default_conf": 0.25,
             "half": True,
             "device": "auto",
@@ -196,11 +202,15 @@ class BaseAPITestCase(unittest.TestCase):
         os.environ["WEBHOOK_MAX_RETRIES"] = "3"
         os.environ["WEBHOOK_RETRY_BASE_SECONDS"] = "0.01"
         self.fake_service = FakeSAM3Backend()
-        self.fake_detection_backend = FakeDetectionBackend()
+        self.fake_detection_backend = FakeDetectionBackend("yolo26n")
+        self.fake_detection_backend_b = FakeDetectionBackend("yolo11n")
         self.fake_yolo_seg_backend = FakeYOLOSegBackend()
         self.app = create_app(
             sam3_backend=self.fake_service,
-            detection_backend=self.fake_detection_backend,
+            detection_backends={
+                "yolo26n": self.fake_detection_backend,
+                "yolo11n": self.fake_detection_backend_b,
+            },
             yolo_seg_backend=self.fake_yolo_seg_backend,
         )
         self.app.config["TESTING"] = True

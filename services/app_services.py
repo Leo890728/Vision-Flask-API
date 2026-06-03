@@ -56,6 +56,7 @@ def build_app_services(
     config: Config,
     sam3_backend=None,
     detection_backend=None,
+    detection_backends: dict | None = None,
     yolo_seg_backend=None,
     segmentation_service: SegmentationService | None = None,
     detection_service: DetectionService | None = None,
@@ -66,7 +67,13 @@ def build_app_services(
         sam3_backend=sam3_backend,
         yolo_seg_backend=yolo_seg_backend,
     )
-    detection_service = detection_service or detection_backend or DetectionService(config)
+    if detection_service is None:
+        if detection_backends is not None:
+            detection_service = DetectionService(config, backends=detection_backends)
+        elif detection_backend is not None:
+            detection_service = DetectionService(config, backends={detection_backend.name: detection_backend})
+        else:
+            detection_service = DetectionService(config)
     storage_service = storage_service or StorageService(config)
     upload_service = UploadService(config=config, storage_service=storage_service)
     rate_limiter = InMemoryRateLimiter(config.rate_limit_per_minute)

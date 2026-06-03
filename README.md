@@ -31,6 +31,7 @@ Server default: `http://127.0.0.1:5000`
 ## Endpoints
 
 - `GET /docs` (Swagger UI)
+- `GET /playground` (Vue A/B model playground, after `npm run build`)
 - `GET /openapi.json` (OpenAPI spec)
 - `GET /healthz`
 - `GET /readyz`
@@ -52,9 +53,21 @@ Server default: `http://127.0.0.1:5000`
 - output formats: `mask_png`, `rle`, `polygon`, `alpha_matte`
 
 `POST /v1/detect` supports (bbox only):
+- model selection with `detect_model` (for example `yolo26n` or `yolo11n`)
 - class filter (`classes`, JSON list of class IDs or names)
 - overlay: `none` or `bbox`
 - returns `bbox`, `score`, `class_id`, `class_name`
+
+## Playground
+
+Build the Vue playground and serve it from Flask:
+
+```powershell
+npm run build
+uv run python app.py
+```
+
+Then open `http://127.0.0.1:5000/playground`.
 
 When the model is busy and `ENABLE_AUTO_QUEUE=true`, `/v1/segment` can return `202` and enqueue a job automatically.
 `/v1/detect` also supports auto-queue.

@@ -93,15 +93,18 @@ class SegmentParams(BaseModel):
 
 
 class DetectParams(BaseModel):
+    detect_model: str
     classes: list[int | str] | None = None
     conf: float
     overlay: DetectOverlay = "none"
 
     @classmethod
     def from_form(cls, form_data: Mapping[str, Any], config: Config) -> "DetectParams":
+        detect_model = _parse_detect_model(form_data.get("detect_model"), config)
         return cls(
+            detect_model=detect_model,
             classes=_parse_classes(form_data),
-            conf=_parse_conf(form_data.get("conf"), config, config.models[config.detect_default_model].default_conf),
+            conf=_parse_conf(form_data.get("conf"), config, config.models[detect_model].default_conf),
             overlay=_parse_detect_overlay(form_data.get("overlay")),
         )
 
@@ -118,6 +121,19 @@ def _parse_segment_model(raw: Any, config: Config) -> SegmentModel:
     if value in {"yolo_seg", "yoloseg", "yolo_segment", "yolo_segmentation"}:
         return "yolo_seg"
     raise APIError("INVALID_SEGMENT_MODEL", "segment_model must be one of: sam3, yolo_seg.", 400)
+
+
+def _parse_detect_model(raw: Any, config: Config) -> str:
+    value = str(raw or config.detect_default_model).strip()
+    if value in config.models and config.models[value].task == "detect":
+        return value
+    detect_models = sorted(name for name, model in config.models.items() if model.task == "detect")
+    raise APIError(
+        "INVALID_DETECT_MODEL",
+        f"detect_model must be one of: {', '.join(detect_models)}.",
+        400,
+        {"available": detect_models},
+    )
 
 
 def _default_segment_conf(config: Config, segment_model: SegmentModel) -> float:

@@ -32,6 +32,7 @@ def register_job_routes(app: Flask, services: AppServices) -> None:
         webhook_secret = (request.form.get("webhook_secret") or "").strip() or None
         if task == "segment":
             params = SegmentParams.from_form(request.form, config, require_input=True)
+            model_name = params.segment_model
             g.prompt = params.prompt
             source_path, _w, _h, decode_ms = services.pipeline.save_and_validate_upload(upload, g.request_id)
             job_payload = {
@@ -49,10 +50,12 @@ def register_job_routes(app: Flask, services: AppServices) -> None:
             }
         else:
             params = DetectParams.from_form(request.form, config)
+            model_name = params.detect_model
             g.prompt = None
             source_path, _w, _h, decode_ms = services.detection_pipeline.save_and_validate_upload(upload, g.request_id)
             job_payload = {
                 "task": "detect",
+                "detect_model": params.detect_model,
                 "request_id": g.request_id,
                 "source_path": str(source_path),
                 "conf": params.conf,
@@ -71,6 +74,7 @@ def register_job_routes(app: Flask, services: AppServices) -> None:
                     "job_id": job_id,
                     "status": "queued",
                     "task": task,
+                    "model": model_name,
                     "status_url": f"/v1/jobs/{job_id}",
                     "webhook_url": webhook_url,
                 }

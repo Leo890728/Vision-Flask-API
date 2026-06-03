@@ -66,8 +66,8 @@ class SystemTest(BaseAPITestCase):
         self.assertTrue(by_name["sam3"]["default"])
         self.assertTrue(by_name["yolo26n"]["active"])
         self.assertTrue(by_name["yolo26n"]["default"])
-        self.assertFalse(by_name["yolo11n"]["active"])
-        self.assertFalse(by_name["yolo11n"]["ready"])
+        self.assertTrue(by_name["yolo11n"]["active"])
+        self.assertTrue(by_name["yolo11n"]["ready"])
 
     def test_metrics_endpoint(self):
         response = self.client.get("/metrics", headers={"X-API-Key": "test-key"})

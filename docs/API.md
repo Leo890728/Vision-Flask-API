@@ -37,6 +37,9 @@ is currently wired for it.
 ### `GET /metrics`
 Prometheus text metrics. Requires API key.
 
+### `GET /playground`
+Vue API playground served from the built `frontend/dist` bundle.
+
 ## Detection
 
 ### `POST /v1/detect`
@@ -44,8 +47,9 @@ Single-image YOLO object detection.
 
 `multipart/form-data` fields:
 - `image` required
+- `detect_model` optional, any active detect model from `/v1/models`, default `DETECT_DEFAULT_MODEL`
 - `classes` optional JSON list of class ids or names, e.g. `[0, "person"]`
-- `conf` optional, defaults to the `DETECT_DEFAULT_MODEL` entry in `models.yaml`
+- `conf` optional, defaults to the selected `detect_model` entry in `models.yaml`
 - `overlay` optional, `none` or `bbox`
 
 Each detection includes:

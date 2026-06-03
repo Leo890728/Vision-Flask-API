@@ -45,6 +45,24 @@ class JobsTest(BaseAPITestCase):
             self.assertEqual(payload["result"]["task"], "detect")
             self.assertEqual(len(payload["result"]["detections"]), 1)
 
+    def test_async_detect_job_preserves_detect_model(self):
+        create = self.client.post(
+            "/v1/jobs",
+            data={"image": (make_image_bytes(), "sample.png"), "task": "detect", "detect_model": "yolo11n"},
+            headers={"X-API-Key": "test-key"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(create.status_code, 202)
+        self.assertEqual(create.get_json()["model"], "yolo11n")
+        job_id = create.get_json()["job_id"]
+
+        payload = self._wait_job_terminal(job_id, attempts=30)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["task"], "detect")
+        if payload["status"] == "done":
+            self.assertEqual(payload["result"]["detect_model"], "yolo11n")
+            self.assertEqual(self.fake_detection_backend_b.call_count, 1)
+
     def test_cancel_job(self):
         self.fake_service.sleep_s = 0.2
         create = self.client.post(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from flask import Blueprint, Flask, jsonify, send_from_directory
 
 from api.openapi import openapi_spec
@@ -8,11 +10,18 @@ from services.app_services import AppServices
 from services.infra.metrics_exporter import render_metrics_text
 
 
+_PLAYGROUND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+
+
 def _model_catalog_response(services: AppServices) -> dict:
     runtime_by_name: dict[str, dict] = {}
 
     detection_meta = services.detection_service.metadata()
-    runtime_by_name[detection_meta["name"]] = detection_meta
+    if "backends" in detection_meta:
+        for backend_meta in detection_meta["backends"].values():
+            runtime_by_name[backend_meta["name"]] = backend_meta
+    else:
+        runtime_by_name[detection_meta["name"]] = detection_meta
 
     segmentation_meta = services.segmentation_service.metadata()
     for backend_meta in segmentation_meta["backends"].values():
@@ -91,6 +100,18 @@ def register_system_routes(app: Flask, services: AppServices) -> None:
   </body>
 </html>"""
         return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+    @blueprint.get("/playground")
+    @blueprint.get("/playground/")
+    def playground_index():
+        return send_from_directory(_PLAYGROUND_DIST, "index.html")
+
+    @blueprint.get("/playground/<path:filename>")
+    def playground_asset(filename: str):
+        target = _PLAYGROUND_DIST / filename
+        if target.exists() and target.is_file():
+            return send_from_directory(_PLAYGROUND_DIST, filename)
+        return send_from_directory(_PLAYGROUND_DIST, "index.html")
 
     @blueprint.get("/healthz")
     def healthz():

@@ -33,12 +33,14 @@ class DetectionPipeline:
     def build_cache_key(
         self,
         image_sha256: str,
+        detect_model: str,
         conf: float,
         overlay: str,
         classes: list[int | str] | None,
     ) -> str:
         key_obj = {
             "task": "detect",
+            "detect_model": detect_model,
             "image_sha256": image_sha256,
             "conf": conf,
             "overlay": overlay,
@@ -51,6 +53,7 @@ class DetectionPipeline:
         self,
         source_path: str,
         request_id: str,
+        detect_model: str,
         conf: float,
         overlay: str,
         classes: list[int | str] | None,
@@ -58,21 +61,20 @@ class DetectionPipeline:
     ) -> dict[str, Any]:
         infer_start = time.perf_counter()
         try:
-            class_ids = self.detection_service.resolve_class_ids(classes)
+            class_ids = self.detection_service.resolve_class_ids(classes, detect_model=detect_model)
         except APIError:
             raise
         except Exception as exc:
             raise APIError("INVALID_CLASSES", str(exc), 400) from exc
         detect_result = self.detection_service.detect(
             image_path=source_path,
+            detect_model=detect_model,
             conf=conf,
             class_ids=class_ids,
             overlay=overlay,
         )
         infer_ms = (time.perf_counter() - infer_start) * 1000
-        self.metrics_service.observe_inference_latency(
-            infer_ms, task=self.detection_service.task, model=self.detection_service.name
-        )
+        self.metrics_service.observe_inference_latency(infer_ms, task="detect", model=detect_model)
 
         post_start = time.perf_counter()
         detections, overlay_url = self._render_detection_response(
@@ -85,6 +87,7 @@ class DetectionPipeline:
         return {
             "request_id": request_id,
             "task": "detect",
+            "detect_model": detect_model,
             "cached": False,
             "classes": classes or [],
             "image_meta": {
@@ -106,6 +109,7 @@ class DetectionPipeline:
         return self.detect_from_saved(
             source_path=payload["source_path"],
             request_id=payload["request_id"],
+            detect_model=payload.get("detect_model", self.config.detect_default_model),
             conf=payload["conf"],
             overlay=overlay,
             classes=payload.get("classes"),

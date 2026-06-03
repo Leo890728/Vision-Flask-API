@@ -75,6 +75,16 @@ def openapi_spec(config: Config) -> dict:
                                     "required": ["image"],
                                     "properties": {
                                         "image": {"type": "string", "format": "binary"},
+                                        "detect_model": {
+                                            "type": "string",
+                                            "enum": [
+                                                name
+                                                for name, model in config.models.items()
+                                                if model.task == "detect"
+                                            ],
+                                            "default": config.detect_default_model,
+                                            "description": "Detection model name from /v1/models.",
+                                        },
                                         "classes": {
                                             "type": "string",
                                             "description": "JSON list of class ids or class names, e.g. [0,\"person\"]",
@@ -108,6 +118,46 @@ def openapi_spec(config: Config) -> dict:
                 "post": {
                     "summary": "Batch object detection in one request",
                     "security": [{"ApiKeyAuth": []}],
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "multipart/form-data": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["images"],
+                                    "properties": {
+                                        "images": {
+                                            "type": "array",
+                                            "items": {"type": "string", "format": "binary"},
+                                        },
+                                        "detect_model": {
+                                            "type": "string",
+                                            "enum": [
+                                                name
+                                                for name, model in config.models.items()
+                                                if model.task == "detect"
+                                            ],
+                                            "default": config.detect_default_model,
+                                            "description": "Detection model name from /v1/models.",
+                                        },
+                                        "classes": {
+                                            "type": "string",
+                                            "description": "JSON list of class ids or class names, e.g. [0,\"person\"]",
+                                        },
+                                        "conf": {
+                                            "type": "number",
+                                            "default": config.models[config.detect_default_model].default_conf,
+                                        },
+                                        "overlay": {
+                                            "type": "string",
+                                            "enum": ["none", "bbox"],
+                                            "default": "none",
+                                        },
+                                    },
+                                }
+                            }
+                        },
+                    },
                     "responses": {"200": {"description": "Batch detection result"}},
                 }
             },
@@ -238,6 +288,16 @@ def openapi_spec(config: Config) -> dict:
                                             "type": "string",
                                             "enum": ["segment", "detect"],
                                             "default": "segment",
+                                        },
+                                        "detect_model": {
+                                            "type": "string",
+                                            "enum": [
+                                                name
+                                                for name, model in config.models.items()
+                                                if model.task == "detect"
+                                            ],
+                                            "default": config.detect_default_model,
+                                            "description": "Detect task only. Detection model name from /v1/models.",
                                         },
                                         "segment_model": {
                                             "type": "string",
