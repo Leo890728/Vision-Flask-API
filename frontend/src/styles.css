@@ -384,11 +384,19 @@ input[type="range"] {
   font-weight: 700;
 }
 
+.mode-tabs {
+  margin-top: -4px;
+}
+
 .results-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
   min-height: 0;
+}
+
+.results-grid.single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .result-pane {

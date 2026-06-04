@@ -6,6 +6,7 @@ import urllib
 from pathlib import Path
 
 from flask import Flask
+from dotenv import load_dotenv
 
 from api.error_handlers import register_error_handlers
 from api.parsers import parse_bool
@@ -19,6 +20,8 @@ from routes.system import register_system_routes
 from services.app_services import build_app_services
 from services.infra.webhook_utils import post_webhook
 
+
+load_dotenv()
 
 def _configure_logging() -> None:
     logging.basicConfig(

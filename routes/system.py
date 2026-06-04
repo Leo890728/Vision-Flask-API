@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Blueprint, Flask, jsonify, send_from_directory
+from flask import Blueprint, Flask, jsonify, redirect, send_from_directory
 
 from api.openapi import openapi_spec
 from middlewares.auth import require_api_key
@@ -101,6 +101,10 @@ def register_system_routes(app: Flask, services: AppServices) -> None:
   </body>
 </html>"""
         return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+    @blueprint.get("/")
+    def root_redirect():
+        return redirect("/playground/", code=302)
 
     @blueprint.get("/playground")
     @blueprint.get("/playground/")
