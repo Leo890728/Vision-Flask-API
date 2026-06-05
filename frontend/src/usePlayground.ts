@@ -7,14 +7,14 @@ import type {
   Task,
   VisionControls
 } from "./api";
-import { fetchModelCatalog } from "./api";
+import { fetchModelCatalog, fetchModelClasses } from "./api";
 import type { NaturalSize } from "./promptGeometry";
 
 export type PlaygroundView = "compare" | "single";
 
 export interface PerModelInput {
   prompt: string;
-  classes: string;
+  classes: string[];
 }
 
 /**
@@ -133,6 +133,17 @@ export function usePlayground() {
     return new Set(info?.input_modes ?? []);
   }
 
+  async function ensureClassNames(modelName: string) {
+    if (!catalog.value || !apiKey.value || !modelName) return;
+    const entry = catalog.value.models.find((m) => m.name === modelName);
+    if (!entry || entry.class_names !== null) return;
+    try {
+      entry.class_names = await fetchModelClasses(apiKey.value, modelName);
+    } catch {
+      // silently ignore — ClassSelect falls back to text input
+    }
+  }
+
   function buildControls(per: PerModelInput): VisionControls {
     return {
       conf: shared.conf,
@@ -141,7 +152,7 @@ export function usePlayground() {
       points: shared.points,
       boxes: shared.boxes,
       prompt: per.prompt,
-      classes: per.classes
+      classes: per.classes.join(", ")
     };
   }
 
@@ -167,7 +178,8 @@ export function usePlayground() {
     removeBox,
     clearPrompts,
     modesOf,
-    buildControls
+    buildControls,
+    ensureClassNames
   };
 }
 

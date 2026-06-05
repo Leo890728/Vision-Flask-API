@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, reactive, ref, watch } from "vue";
 import { DatabaseZap, KeyRound, Play, RefreshCw, Upload } from "lucide-vue-next";
+import ClassSelect from "./components/ClassSelect.vue";
 import ModeTabs from "./components/ModeTabs.vue";
 import PreviewBand from "./components/PreviewBand.vue";
 import ResultPane from "./components/ResultPane.vue";
@@ -35,7 +36,8 @@ const {
   removeBox,
   clearPrompts,
   modesOf,
-  buildControls
+  buildControls,
+  ensureClassNames
 } = pg;
 
 // ── selection & result ─────────────────────────────────────────────────────
@@ -45,7 +47,7 @@ const runError = ref("");
 const result = ref<PanelResult | null>(null);
 
 // text inputs (prompt / classes) for the selected model
-const per = reactive({ prompt: "", classes: "" });
+const per = reactive({ prompt: "", classes: [] as string[] });
 
 const modelInfo = computed<ModelInfo | undefined>(() =>
   activeModels.value.find((m) => m.name === model.value)
@@ -78,6 +80,7 @@ function syncSelectedModel() {
 
 watch(activeModels, syncSelectedModel, { immediate: true });
 watch([task, imageFile], clearResult);
+watch(model, (name) => { if (name) ensureClassNames(name); });
 
 // drop visual prompts the selected model does not support
 watch(model, () => {
@@ -180,10 +183,12 @@ async function run() {
           <span>Prompt</span>
           <input v-model="per.prompt" type="text" placeholder="a person" />
         </label>
-        <label v-if="modes.has('classes')">
-          <span>Classes</span>
-          <input v-model="per.classes" type="text" placeholder="person, car" />
-        </label>
+        <ClassSelect
+          v-if="modes.has('classes')"
+          label="Classes"
+          v-model="per.classes"
+          :class-names="modelInfo?.class_names ?? null"
+        />
       </section>
 
       <!-- shared controls -->

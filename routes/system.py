@@ -48,6 +48,7 @@ def _model_catalog_response(services: AppServices) -> dict:
                     if model_cfg.task == "detect"
                     else name == services.config.segment_default_model
                 ),
+                "class_names": runtime.get("class_names") if runtime else None,
             }
         )
 
@@ -132,6 +133,23 @@ def register_system_routes(app: Flask, services: AppServices) -> None:
     @require_api_key(config.api_key)
     def model_metadata():
         return jsonify(_model_catalog_response(services)), 200
+
+    @blueprint.get("/v1/models/<name>/classes")
+    @require_api_key(config.api_key)
+    def model_classes(name: str):
+        import logging as _logging
+        model_cfg = config.models.get(name)
+        if not model_cfg:
+            return jsonify({"code": "MODEL_NOT_FOUND", "message": f"Model '{name}' not found."}), 404
+        try:
+            if model_cfg.task == "detect":
+                class_names = services.detection_service.get_class_names(name)
+            else:
+                class_names = services.segmentation_service.get_class_names(name)
+        except Exception as exc:
+            _logging.exception("Failed to load class names for model '%s': %s", name, exc)
+            return jsonify({"code": "LOAD_FAILED", "message": str(exc)}), 503
+        return jsonify({"model": name, "class_names": class_names}), 200
 
     @blueprint.get(f"{config.output_url_prefix}/<path:filename>")
     def serve_output_file(filename: str):

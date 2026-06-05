@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, reactive, ref, watch } from "vue";
 import { DatabaseZap, KeyRound, Play, RefreshCw, Upload } from "lucide-vue-next";
+import ClassSelect from "./components/ClassSelect.vue";
 import ModeTabs from "./components/ModeTabs.vue";
 import PreviewBand from "./components/PreviewBand.vue";
 import ResultPane from "./components/ResultPane.vue";
@@ -35,7 +36,8 @@ const {
   removeBox,
   clearPrompts,
   modesOf,
-  buildControls
+  buildControls,
+  ensureClassNames
 } = pg;
 
 // ── per-side selection & results ───────────────────────────────────────────
@@ -47,8 +49,8 @@ const resultA = ref<PanelResult | null>(null);
 const resultB = ref<PanelResult | null>(null);
 
 // per-model text inputs (prompt / classes)
-const perA = reactive({ prompt: "", classes: "" });
-const perB = reactive({ prompt: "", classes: "" });
+const perA = reactive({ prompt: "", classes: [] as string[] });
+const perB = reactive({ prompt: "", classes: [] as string[] });
 
 const modelAInfo = computed<ModelInfo | undefined>(() =>
   activeModels.value.find((m) => m.name === modelA.value)
@@ -91,6 +93,8 @@ function syncSelectedModels() {
 
 watch(activeModels, syncSelectedModels, { immediate: true });
 watch([task, imageFile], clearResults);
+watch(modelA, (name) => { if (name) ensureClassNames(name); });
+watch(modelB, (name) => { if (name) ensureClassNames(name); });
 
 // drop visual prompts neither model supports
 watch([modelA, modelB], () => {
@@ -206,10 +210,12 @@ async function runAB() {
             <span>Prompt A</span>
             <input v-model="perA.prompt" type="text" placeholder="a person" />
           </label>
-          <label v-if="modesA.has('classes')">
-            <span>Classes A</span>
-            <input v-model="perA.classes" type="text" placeholder="person, car" />
-          </label>
+          <ClassSelect
+            v-if="modesA.has('classes')"
+            label="Classes A"
+            v-model="perA.classes"
+            :class-names="modelAInfo?.class_names ?? null"
+          />
         </div>
 
         <div class="model-col">
@@ -228,10 +234,12 @@ async function runAB() {
             <span>Prompt B</span>
             <input v-model="perB.prompt" type="text" placeholder="a person" />
           </label>
-          <label v-if="modesB.has('classes')">
-            <span>Classes B</span>
-            <input v-model="perB.classes" type="text" placeholder="person, car" />
-          </label>
+          <ClassSelect
+            v-if="modesB.has('classes')"
+            label="Classes B"
+            v-model="perB.classes"
+            :class-names="modelBInfo?.class_names ?? null"
+          />
         </div>
       </section>
 

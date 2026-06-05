@@ -13,16 +13,33 @@ if TYPE_CHECKING:
     from services.infra.model_pool import ModelPool
 
 
+def _extract_class_names(model: Any) -> list[str] | None:
+    if model is None:
+        return None
+    names = getattr(model, "names", None)
+    if isinstance(names, dict):
+        return [str(names[k]) for k in sorted(names.keys())]
+    if isinstance(names, list):
+        return [str(n) for n in names]
+    return None
+
+
 class _YOLODetectionBackend(BaseModelBackend):
     def __init__(self, config: Config, model_cfg: ModelConfig):
         super().__init__(config, model_cfg)
         self._model: YOLO | None = None
+        self._class_names: list[str] | None = None
+
+    @property
+    def class_names(self) -> list[str] | None:
+        return self._class_names
 
     def _models_loaded(self) -> bool:
         return self._model is not None
 
     def load(self) -> None:
-        self._model = YOLO(self.model_cfg.model_path)
+        self._model = YOLO(self.model_cfg.model_path, task=self.model_cfg.task)
+        self._class_names = _extract_class_names(self._model)
         self._ready = True
         self._last_error = None
 
@@ -30,6 +47,7 @@ class _YOLODetectionBackend(BaseModelBackend):
         del self._model
         self._model = None
         self._ready = False
+        # _class_names intentionally kept — survives LRU eviction
 
     def warmup(self, sample_image_path: str | None = None) -> None:
         if self._model is None or sample_image_path is None:
@@ -57,6 +75,7 @@ class _YOLODetectionBackend(BaseModelBackend):
             "ready": self.is_ready,
             "last_error": self._last_error,
             "busy": self.is_busy,
+            "class_names": self._class_names,
         }
 
     def resolve_class_ids(self, classes: list[int | str] | None) -> list[int] | None:
@@ -208,6 +227,15 @@ class DetectionService:
 
     def is_busy_for(self, detect_model: str | None = None) -> bool:
         return bool(self._backend_for(detect_model).is_busy)
+
+    def get_class_names(self, detect_model: str | None = None) -> list[str] | None:
+        backend = self._backend_for(detect_model)
+        if backend.class_names is None:
+            if self._pool:
+                self._pool.ensure_loaded(backend)
+            else:
+                backend.load()
+        return backend.class_names
 
     def resolve_class_ids(
         self,

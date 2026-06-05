@@ -166,16 +166,31 @@ class _SAM3Backend(BaseModelBackend):
         return _build_segmentation_payload(results, overlay)
 
 
+def _yolo_seg_class_names(model: Any) -> list[str] | None:
+    names = getattr(model, "names", None)
+    if isinstance(names, dict):
+        return [str(names[k]) for k in sorted(names.keys())]
+    if isinstance(names, list):
+        return [str(n) for n in names]
+    return None
+
+
 class _YOLOSegBackend(BaseModelBackend):
     def __init__(self, config: Config, model_cfg: ModelConfig | None = None):
         super().__init__(config, model_cfg or config.models["yolo_seg"])
         self._model: YOLO | None = None
+        self._class_names: list[str] | None = None
+
+    @property
+    def class_names(self) -> list[str] | None:
+        return self._class_names
 
     def _models_loaded(self) -> bool:
         return self._model is not None
 
     def load(self) -> None:
-        self._model = YOLO(self.model_cfg.model_path)
+        self._model = YOLO(self.model_cfg.model_path, task=self.model_cfg.task)
+        self._class_names = _yolo_seg_class_names(self._model)
         self._ready = True
         self._last_error = None
 
@@ -183,6 +198,7 @@ class _YOLOSegBackend(BaseModelBackend):
         del self._model
         self._model = None
         self._ready = False
+        # _class_names intentionally kept — survives LRU eviction
 
     def warmup(self, sample_image_path: str | None = None) -> None:
         if self._model is None or sample_image_path is None:
@@ -210,6 +226,7 @@ class _YOLOSegBackend(BaseModelBackend):
             "ready": self.is_ready,
             "last_error": self._last_error,
             "busy": self.is_busy,
+            "class_names": self._class_names,
         }
 
     def resolve_class_ids(self, classes: list[int | str] | None) -> list[int] | None:
@@ -322,6 +339,17 @@ class SegmentationService:
 
     def is_busy_for(self, segment_model: str) -> bool:
         return bool(self._backend_for(segment_model).is_busy)
+
+    def get_class_names(self, segment_model: str) -> list[str] | None:
+        backend = self._backend_for(segment_model)
+        cached = getattr(backend, "class_names", None)
+        if cached is not None:
+            return cached
+        if self._pool:
+            self._pool.ensure_loaded(backend)
+        else:
+            backend.load()
+        return getattr(backend, "class_names", None)
 
     def metadata(self) -> dict[str, Any]:
         return {

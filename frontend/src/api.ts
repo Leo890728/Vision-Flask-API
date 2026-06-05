@@ -14,6 +14,7 @@ export interface ModelInfo {
   last_error: string | null;
   active: boolean;
   default: boolean;
+  class_names: string[] | null;
 }
 
 export interface ModelCatalog {
@@ -143,6 +144,19 @@ export function buildVisionFormData(request: VisionRequest): FormData {
   }
   if (modes.has("classes")) appendIfPresent(form, "classes", controls.classes);
   return form;
+}
+
+export async function fetchModelClasses(
+  apiKey: string,
+  modelName: string,
+  fetchImpl: FetchLike = fetch
+): Promise<string[] | null> {
+  const response = await fetchImpl(`/v1/models/${encodeURIComponent(modelName)}/classes`, {
+    headers: authHeaders(apiKey)
+  });
+  const payload = await readJson(response);
+  if (!response.ok) throw normalizeApiError(payload, response.status);
+  return (payload as { class_names: string[] | null }).class_names;
 }
 
 export async function fetchModelCatalog(apiKey: string, fetchImpl: FetchLike = fetch): Promise<ModelCatalog> {
